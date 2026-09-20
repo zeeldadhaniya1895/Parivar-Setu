@@ -1,0 +1,92 @@
+%% Parivar Setu - system architecture (v1, from DESIGN.md)
+%% Render: npx @mermaid-js/mermaid-cli -i architecture.mmd -o architecture-mermaid.png
+flowchart TB
+  subgraph USERS["Users (browser)"]
+    OFF["Officer UI<br/>dashboard, families, flags, review queue"]
+    CIT["Citizen UI<br/>Family ID lookup, assistant"]
+  end
+
+  subgraph VERCEL["Vercel: Next.js App Router"]
+    direction TB
+
+    subgraph PRES["Presentation layer"]
+      PAGES["Server components<br/>/officer/* and /citizen/*"]
+    end
+
+    subgraph API["API layer (route handlers)"]
+      R1["POST /api/pipeline/run"]
+      R2["POST /api/review/[pairKey]"]
+      R3["POST /api/events/death"]
+      R4["POST /api/assistant"]
+    end
+
+    subgraph APP["Application layer"]
+      PIPE["lib/pipeline.ts<br/>orchestrator"]
+      DBL["lib/db<br/>server-only queries"]
+      LLM["lib/llm<br/>LLMProvider interface"]
+      GEM["Gemini adapter<br/>timeout + 1 retry"]
+      FB["Fallback templates<br/>Gujarati and English"]
+    end
+
+    subgraph ENGINE["Domain engine (pure TypeScript, no I/O)"]
+      direction LR
+      N["normalize"] --> M["match"] --> RS["resolve"] --> AN["anomalies"] --> EL["eligibility"] --> EV["evaluate"]
+      CFG[("config/schemes.json")]
+    end
+  end
+
+  subgraph SUPA["Supabase Postgres (RLS on, no anon access)"]
+    subgraph INPUTS["Inputs: never truncated"]
+      SR[("source_records")]
+      RD[("review_decisions")]
+      FE[("family_events")]
+      AL[("audit_log<br/>append-only trigger")]
+    end
+    subgraph DERIVED["Derived: rebuilt on every run"]
+      DT[("persons, families, family_members,<br/>match_candidates, enrollments,<br/>eligibility_results, anomaly_flags,<br/>pipeline_runs")]
+    end
+  end
+
+  GAPI["Gemini API<br/>free tier Flash"]
+  SEED["scripts/seed.ts<br/>deterministic generator"]
+
+  OFF --> PAGES
+  CIT --> PAGES
+  OFF --> R1
+  OFF --> R2
+  OFF --> R3
+  CIT --> R4
+
+  PAGES --> DBL
+  R1 --> PIPE
+  R2 --> DBL
+  R2 --> PIPE
+  R3 --> DBL
+  R3 --> PIPE
+  R4 --> DBL
+  R4 --> LLM
+
+  PIPE --> ENGINE
+  CFG -.-> EL
+  PIPE --> DBL
+  LLM --> GEM
+  LLM --> FB
+  GEM -- "derived facts only" --> GAPI
+
+  DBL --> SUPA
+  SEED --> SR
+
+  style ENGINE fill:#eef3fa,stroke:#16365c
+  style INPUTS fill:#fffaf0,stroke:#b8860b
+  style DERIVED fill:#f4f9f6,stroke:#3d7a5a
+  style VERCEL fill:#fafafa,stroke:#999
+  style SUPA fill:#fafafa,stroke:#999
+  style USERS fill:#fafafa,stroke:#999
+  classDef engine fill:#16365c,stroke:#16365c,color:#ffffff
+  classDef input fill:#fff4d6,stroke:#b8860b,color:#3a2a00
+  classDef derived fill:#e8f1ec,stroke:#3d7a5a,color:#12301f
+  classDef external fill:#f3eef8,stroke:#6b4f8f,color:#2a1a40
+  class N,M,RS,AN,EL,EV engine
+  class SR,RD,FE,AL input
+  class DT derived
+  class GAPI,SEED external
