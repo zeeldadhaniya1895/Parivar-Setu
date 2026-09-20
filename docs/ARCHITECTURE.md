@@ -1,6 +1,6 @@
 # Parivar Setu - Architecture
 
-Version 1, derived from `DESIGN.md`. Update this file and the diagrams at P7 and P12 so they match the code that was actually built.
+Updated at P7 (safe submission). Matches the code through P1–P6. Update again at P12 (final submission) for any changes after this point.
 
 ## 1. Overview
 
