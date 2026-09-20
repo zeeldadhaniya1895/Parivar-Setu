@@ -66,7 +66,7 @@ const capitalize = (s: string) => (s.length === 0 ? s : s[0].toUpperCase() + s.s
 // Transliteration variants seen in real records. Most keep the phonetic key equal
 // (pooja/puja, bhavesh/bavesh, chaudhary/choudhari); a few (patel/patal) only survive
 // on Jaro-Winkler, which is intentional.
-const SPELL_RULES: readonly (readonly [RegExp, string])[] = [
+export const SPELL_RULES: readonly (readonly [RegExp, string])[] = [
   [/oo/, "u"], [/bh/, "b"], [/dh/, "d"], [/kh/, "k"], [/gh/, "g"], [/ph/, "f"],
   [/sh(?=.)/, "s"], [/v/, "w"], [/w/, "v"], [/ee/, "i"], [/au/, "ou"], [/ai/, "e"],
   [/y$/, "i"], [/a$/, "aa"], [/i/, "ee"], [/l(?=a)/, "ll"], [/e(?=l$)/, "a"],

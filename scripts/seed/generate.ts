@@ -552,6 +552,8 @@ export function generateSeed(seed: number = SEED): SeedResult {
   }
 
   // ---- planted: people on two ration cards (5): 3 sons, 2 married daughters --------------
+  // The moved-out household needs 3+ members: with 2, one shared person is 0.5 of the smaller card,
+  // which the card-merge rule (7.4 rule 2) correctly treats as a duplicate card instead.
   const relink = (h: Household, surname: string) => {
     for (const m of membersOf(h)) m.surname = surname;
   };
@@ -580,7 +582,8 @@ export function generateSeed(seed: number = SEED): SeedResult {
     const [h1, h2] = pairUp(
       (h) => {
         const head = headOf(h);
-        return head.gender === "M" && head.spouseId !== null && ageOn(head.dob) >= 25 && ageOn(head.dob) <= 42;
+        return head.gender === "M" && head.spouseId !== null && h.memberIds.length >= 3 &&
+          ageOn(head.dob) >= 25 && ageOn(head.dob) <= 42;
       },
       (c, h2) =>
         c.district === h2.district && roomy(c) && headOf(c).gender === "M" &&
@@ -590,6 +593,7 @@ export function generateSeed(seed: number = SEED): SeedResult {
     const father = headOf(h1);
     const son = headOf(h2);
     son.fatherFirst = father.firstName;
+    son.forceUid = true; // both cards carry his ID, which is how the duplicate is caught
     relink(h2, father.surname);
     h1.staleCopies.push({
       personId: son.id, relation: "son", marital: rng.chance(0.5) ? "married" : "unmarried",
@@ -602,7 +606,8 @@ export function generateSeed(seed: number = SEED): SeedResult {
       (h) => {
         const head = headOf(h);
         const wife = head.spouseId ? P(head.spouseId) : null;
-        return head.gender === "M" && wife !== null && ageOn(wife.dob) >= 22 && ageOn(wife.dob) <= 40;
+        return head.gender === "M" && wife !== null && h.memberIds.length >= 3 &&
+          ageOn(wife.dob) >= 22 && ageOn(wife.dob) <= 40;
       },
       (c, h2) => {
         const wife = P(headOf(h2).spouseId ?? "");
