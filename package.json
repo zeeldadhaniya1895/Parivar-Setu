@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "seed": "tsx scripts/seed.ts"
+    "seed": "tsx scripts/seed.ts",
+    "pipeline": "tsx scripts/run-pipeline.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",

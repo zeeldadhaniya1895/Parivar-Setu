@@ -199,3 +199,86 @@ export interface ResolveResult {
   cardMerges: CardMerge[];
   multiHousehold: MultiHousehold[];
 }
+
+// ---- enrollments, anomalies, eligibility --------------------------------------------------
+
+export type JsonValue =
+  | string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+
+export interface Enrollment {
+  personId: string;
+  familyId: string;
+  schemeCode: string;
+  sourceRecordId: string;
+  monthlyAmount: number | null;
+}
+
+export type AnomalyType =
+  | "deceased_beneficiary" | "duplicate_enrollment" | "multi_household"
+  | "income_mismatch" | "unanchored_beneficiary";
+export type Severity = "high" | "medium" | "low";
+
+export interface AnomalyFlag {
+  id: string;
+  type: AnomalyType;
+  severity: Severity;
+  familyId: string | null;
+  personId: string | null;
+  /** Source record ids and the values that triggered the flag */
+  evidence: { [key: string]: JsonValue };
+  estMonthlyLeakage: number | null;
+  status: "open";
+}
+
+export type Operator =
+  | "eq" | "ne" | "gt" | "gte" | "lt" | "lte" | "in" | "on_or_after" | "on_or_before";
+export type ConditionValue = string | number | boolean | readonly (string | number)[];
+
+export interface Condition {
+  field: string;
+  op: Operator;
+  value: ConditionValue;
+}
+export type Rule = Condition | { all: readonly Rule[] } | { any: readonly Rule[] };
+
+export type EnrollmentSource = "ration_card" | "pension_record" | "scholarship_record" | "none";
+
+export interface SchemeConfig {
+  code: string;
+  name: string;
+  nameGu: string;
+  scope: "person" | "family";
+  enrollment: EnrollmentSource;
+  rule: Rule;
+}
+
+export interface SchemesConfig {
+  version: string;
+  notice: string;
+  schemes: readonly SchemeConfig[];
+}
+
+/** One evaluated condition: what was checked, the value found, and whether it passed. */
+export interface Reason {
+  rule: string;
+  actual: string | number | boolean | null;
+  passed: boolean;
+}
+
+export interface EligibilityResult {
+  familyId: string;
+  /** null for family-scope schemes */
+  personId: string | null;
+  schemeCode: string;
+  eligible: boolean;
+  reasons: Reason[];
+  rulesVersion: string;
+}
+
+export interface GapAnalysis {
+  eligibleNotEnrolled: { familyId: string; personId: string | null; schemeCode: string }[];
+  enrolledNotEligible: {
+    familyId: string; personId: string; schemeCode: string;
+    sourceRecordId: string; monthlyAmount: number | null;
+  }[];
+}

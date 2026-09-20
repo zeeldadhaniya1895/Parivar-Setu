@@ -1,4 +1,76 @@
 {
-  "version": "0",
-  "schemes": []
+  "version": "demo-2026-09-1",
+  "notice": "All thresholds are simplified demo values, not official scheme criteria.",
+  "schemes": [
+    {
+      "code": "NFSA_RATION",
+      "name": "Food security ration",
+      "nameGu": "ખાદ્ય સુરક્ષા રાશન",
+      "scope": "family",
+      "enrollment": "ration_card",
+      "rule": { "all": [{ "field": "family.resolved_income", "op": "lte", "value": 120000 }] }
+    },
+    {
+      "code": "OLD_AGE_PENSION",
+      "name": "Old age pension",
+      "nameGu": "વૃદ્ધ સહાય પેન્શન",
+      "scope": "person",
+      "enrollment": "pension_record",
+      "rule": {
+        "all": [
+          { "field": "age", "op": "gte", "value": 60 },
+          { "field": "family.resolved_income", "op": "lte", "value": 120000 }
+        ]
+      }
+    },
+    {
+      "code": "WIDOW_ASSIST",
+      "name": "Ganga Swarupa widow assistance",
+      "nameGu": "ગંગા સ્વરૂપા વિધવા સહાય",
+      "scope": "person",
+      "enrollment": "pension_record",
+      "rule": {
+        "all": [
+          { "field": "gender", "op": "eq", "value": "F" },
+          { "field": "marital_status", "op": "eq", "value": "widowed" },
+          { "field": "age", "op": "gte", "value": 18 }
+        ]
+      }
+    },
+    {
+      "code": "SCHOLARSHIP",
+      "name": "Student scholarship",
+      "nameGu": "વિદ્યાર્થી શિષ્યવૃત્તિ",
+      "scope": "person",
+      "enrollment": "scholarship_record",
+      "rule": {
+        "all": [
+          { "field": "is_student", "op": "eq", "value": true },
+          { "field": "family.resolved_income", "op": "lte", "value": 250000 }
+        ]
+      }
+    },
+    {
+      "code": "VAHLI_DIKRI",
+      "name": "Vahli Dikri Yojana",
+      "nameGu": "વહાલી દીકરી યોજના",
+      "scope": "person",
+      "enrollment": "none",
+      "rule": {
+        "all": [
+          { "field": "gender", "op": "eq", "value": "F" },
+          { "field": "dob", "op": "on_or_after", "value": "2019-08-02" },
+          { "field": "family.resolved_income", "op": "lte", "value": 200000 }
+        ]
+      }
+    },
+    {
+      "code": "PMJAY_MA",
+      "name": "PMJAY-MA health cover",
+      "nameGu": "PMJAY-મા આરોગ્ય કવચ",
+      "scope": "family",
+      "enrollment": "none",
+      "rule": { "all": [{ "field": "family.resolved_income", "op": "lte", "value": 500000 }] }
+    }
+  ]
 }
