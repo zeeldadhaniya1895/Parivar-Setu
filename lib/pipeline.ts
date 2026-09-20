@@ -35,6 +35,7 @@ async function execute(actor: string): Promise<PipelineSummary> {
   const result = runEngine({
     records: inputs.records,
     decisions: inputs.decisions,
+    events: inputs.events,
     asOfDate,
     config,
     truth: inputs.truth,

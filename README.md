@@ -60,6 +60,8 @@ cp .env.example .env.local      # then fill in the values
    - `service_role` secret → `SUPABASE_SERVICE_ROLE_KEY`
 2. Open the Supabase **SQL editor**, paste the contents of
    [`supabase/migrations/0001_init.sql`](supabase/migrations/0001_init.sql) and run it.
+3. Then run [`supabase/migrations/0002_grievances.sql`](supabase/migrations/0002_grievances.sql) the same way
+   (grievances table, and the `basis` column on enrollments for automatic benefits).
 
 ### Seed data
 
@@ -105,16 +107,27 @@ npm run dev             # start locally at http://localhost:3000
 
 ## Eligibility schemes (demo criteria)
 
-| Code | Name | Scope | Key rule |
-|---|---|---|---|
-| `NFSA_RATION` | Food security ration | Family | Income ≤ ₹1,20,000 |
-| `OLD_AGE_PENSION` | Old age pension | Person | Age ≥ 60, income ≤ ₹1,20,000 |
-| `WIDOW_ASSIST` | Ganga Swarupa widow assistance | Person | Female, widowed, age ≥ 18 |
-| `SCHOLARSHIP` | Student scholarship | Person | Student, income ≤ ₹2,50,000 |
-| `VAHLI_DIKRI` | Vahli Dikri Yojana | Person | Female, born on/after 2019-08-02, income ≤ ₹2,00,000 |
-| `PMJAY_MA` | PMJAY-MA health cover | Family | Income ≤ ₹5,00,000 |
+| Code | Name | Scope | Key rule | When eligible |
+|---|---|---|---|---|
+| `NFSA_RATION` | Food security ration | Family | Income ≤ ₹1,20,000 | Starts automatically |
+| `OLD_AGE_PENSION` | Old age pension | Person | Age ≥ 60, income ≤ ₹1,20,000 | Starts automatically (₹1,000/month) |
+| `WIDOW_ASSIST` | Ganga Swarupa widow assistance | Person | Female, widowed, age ≥ 18 | Manual verification |
+| `SCHOLARSHIP` | Student scholarship | Person | Student, income ≤ ₹2,50,000 | Starts automatically (₹500/month) |
+| `VAHLI_DIKRI` | Vahli Dikri Yojana | Person | Female, born on/after 2019-08-02, income ≤ ₹2,00,000 | Manual verification |
+| `PMJAY_MA` | PMJAY-MA health cover | Family | Income ≤ ₹5,00,000 | Manual verification |
 
 All thresholds are simplified demo values, not official criteria.
+
+## Benefits, manual verification and grievances
+
+Eligibility is turned into benefits, not just a label:
+
+- **Automatic schemes** (ration, old-age pension, scholarship): when the rules pass, the benefit starts by itself. It is stored as an enrollment with `basis = auto` (no source record), labelled "started automatically", with a demo monthly amount from `config/schemes.json`.
+- **Manual-verification schemes** (widow assistance, Vahli Dikri, PMJAY-MA): the family is shown as "eligible, waiting for officer verification" and receives nothing until an officer acts. There is no verify button in this build.
+- **Officer lists:** `/officer/schemes` shows, per scheme, the families receiving it and the families eligible but waiting, each with a CSV download (`/api/reports`).
+- **Grievances:** a citizen who is not receiving a scheme can ask an officer why from their page. The officer answers on `/officer/grievances` and the answer appears for the citizen. Each action is audited.
+
+> Run `supabase/migrations/0002_grievances.sql` after `0001_init.sql`, then `npm run pipeline`.
 
 ## Anomaly types
 

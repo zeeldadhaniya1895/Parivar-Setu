@@ -2,7 +2,7 @@
 // values that triggered it.
 import { NFSA_SCHEME } from "./enrollments";
 import type {
-  AnomalyFlag, AnomalyType, CardMerge, Enrollment, Family, JsonValue, MultiHousehold, Person,
+  AnomalyFlag, AnomalyType, CardMerge, Family, JsonValue, MultiHousehold, Person, RecordEnrollment,
   Severity,
 } from "./types";
 
@@ -25,7 +25,7 @@ const SEVERITY: Record<AnomalyType, Severity> = {
 export interface AnomalyInput {
   persons: readonly Person[];
   families: readonly Family[];
-  enrollments: readonly Enrollment[];
+  enrollments: readonly RecordEnrollment[];
   cardMerges: readonly CardMerge[];
   multiHousehold: readonly MultiHousehold[];
   /** Death registry record ids per person, cited as evidence on deceased_beneficiary flags */
@@ -48,7 +48,7 @@ const hasAmount = (values: readonly (number | null)[]) => values.some((v) => v !
 export function detectAnomalies(input: AnomalyInput): AnomalyResult {
   const { persons, families, enrollments, cardMerges, multiHousehold, deathRecordIdsByPerson } = input;
   const familyById = new Map(families.map((f) => [f.id, f]));
-  const enrollmentsByPerson = new Map<string, Enrollment[]>();
+  const enrollmentsByPerson = new Map<string, RecordEnrollment[]>();
   for (const e of enrollments) {
     enrollmentsByPerson.set(e.personId, [...(enrollmentsByPerson.get(e.personId) ?? []), e]);
   }
@@ -80,7 +80,7 @@ export function detectAnomalies(input: AnomalyInput): AnomalyResult {
   }
 
   // duplicate_enrollment (a): the same person enrolled twice in one scheme
-  const byPersonScheme = new Map<string, Enrollment[]>();
+  const byPersonScheme = new Map<string, RecordEnrollment[]>();
   for (const e of enrollments) {
     if (e.schemeCode === NFSA_SCHEME) continue;
     const key = `${e.personId}|${e.schemeCode}`;

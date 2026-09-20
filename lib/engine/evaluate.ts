@@ -1,6 +1,7 @@
 // Evaluation against ground truth (DESIGN.md 7.10) and run statistics.
 import type {
-  AnomalyFlag, AnomalyType, EligibilityResult, Family, GapAnalysis, MatchCandidate, Person,
+  AnomalyFlag, AnomalyType, EligibilityResult, Enrollment, Family, GapAnalysis, MatchCandidate, Person,
+  SchemesConfig,
 } from "./types";
 
 const pairs = (n: number) => (n * (n - 1)) / 2;
@@ -50,6 +51,23 @@ export function evaluatePairs(
   return { precision, recall, f1, truePairs, predictedPairs, correctPairs };
 }
 
+/** Who receives a scheme today, from records and from automatic grants. */
+export interface ReceivingTotals {
+  families: number;
+  /** People for person-scope schemes; every family member for family-scope schemes */
+  beneficiaries: number;
+  /** Total demo monthly benefit in rupees */
+  monthlyAmount: number;
+  /** How many of the families' benefits started automatically rather than from a record */
+  automatic: number;
+}
+
+/** Who is eligible but waiting, because the scheme needs manual verification. */
+export interface PendingTotals {
+  families: number;
+  beneficiaries: number;
+}
+
 export interface RunStats {
   sourceRecords: number;
   persons: number;
@@ -63,6 +81,8 @@ export interface RunStats {
   estMonthlyLeakage: number;
   eligibleNotEnrolled: number;
   eligibleNotEnrolledByScheme: Record<string, number>;
+  receivingByScheme: Record<string, ReceivingTotals>;
+  pendingVerificationByScheme: Record<string, PendingTotals>;
   enrolledNotEligible: number;
   eligibleResults: number;
   precision: number | null;
@@ -87,6 +107,9 @@ export function buildStats(input: {
   flags: readonly AnomalyFlag[];
   eligibility: readonly EligibilityResult[];
   gaps: GapAnalysis;
+  enrollments: readonly Enrollment[];
+  memberCountByFamily: ReadonlyMap<string, number>;
+  config: SchemesConfig;
   leakageByEnrollment: ReadonlyMap<string, number>;
   evaluation: PairwiseEvaluation | null;
 }): RunStats {
@@ -101,6 +124,43 @@ export function buildStats(input: {
   }
   const byScheme: Record<string, number> = {};
   for (const g of gaps.eligibleNotEnrolled) byScheme[g.schemeCode] = (byScheme[g.schemeCode] ?? 0) + 1;
+
+  const schemeByCode = new Map(input.config.schemes.map((s) => [s.code, s]));
+  const sizeOf = (familyId: string) => input.memberCountByFamily.get(familyId) ?? 0;
+
+  const receivingFamilies = new Map<string, Set<string>>();
+  const receiving: Record<string, ReceivingTotals> = {};
+  for (const e of input.enrollments) {
+    const scheme = schemeByCode.get(e.schemeCode);
+    if (!scheme) continue;
+    const totals = (receiving[e.schemeCode] ??= { families: 0, beneficiaries: 0, monthlyAmount: 0, automatic: 0 });
+    const seen = receivingFamilies.get(e.schemeCode) ?? new Set<string>();
+    if (!seen.has(e.familyId)) {
+      seen.add(e.familyId);
+      totals.families += 1;
+      if (e.basis === "auto") totals.automatic += 1;
+    }
+    receivingFamilies.set(e.schemeCode, seen);
+    totals.beneficiaries += scheme.scope === "family" ? sizeOf(e.familyId) : 1;
+    totals.monthlyAmount += e.monthlyAmount ?? 0;
+  }
+
+  const pendingFamilies = new Map<string, Set<string>>();
+  const pending: Record<string, PendingTotals> = {};
+  for (const g of gaps.eligibleNotEnrolled) {
+    const scheme = schemeByCode.get(g.schemeCode);
+    if (!scheme) continue;
+    const totals = (pending[g.schemeCode] ??= { families: 0, beneficiaries: 0 });
+    const seen = pendingFamilies.get(g.schemeCode) ?? new Set<string>();
+    if (!seen.has(g.familyId)) {
+      seen.add(g.familyId);
+      totals.families += 1;
+    }
+    pendingFamilies.set(g.schemeCode, seen);
+    totals.beneficiaries += scheme.scope === "family" ? sizeOf(g.familyId) : 1;
+  }
+  const sortedByCode = <T,>(record: Record<string, T>): Record<string, T> =>
+    Object.fromEntries(Object.entries(record).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 
   return {
     sourceRecords: input.sourceRecordCount,
@@ -117,6 +177,8 @@ export function buildStats(input: {
     estMonthlyLeakage: [...leaking.values()].reduce((t, n) => t + n, 0),
     eligibleNotEnrolled: gaps.eligibleNotEnrolled.length,
     eligibleNotEnrolledByScheme: Object.fromEntries(Object.entries(byScheme).sort()),
+    receivingByScheme: sortedByCode(receiving),
+    pendingVerificationByScheme: sortedByCode(pending),
     enrolledNotEligible: gaps.enrolledNotEligible.length,
     eligibleResults: input.eligibility.filter((r) => r.eligible).length,
     precision: evaluation?.precision ?? null,

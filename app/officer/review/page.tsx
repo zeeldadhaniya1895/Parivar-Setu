@@ -1,28 +1,25 @@
 import { RecordCard } from "@/components/record-card";
 import { ScoreBreakdown } from "@/components/score-breakdown";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { pendingReviews } from "@/lib/db/queries";
+import { ReviewActions } from "@/components/review-actions";
 
 export default async function ReviewPage() {
   const reviews = await pendingReviews();
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Review queue</h1>
-        <p className="text-sm text-muted-foreground">
+    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <div className="border-b border-border/50 pb-6">
+        <h1 className="text-3xl font-bold tracking-tight text-primary flex items-center gap-2">
+          Review queue <span className="text-xl font-normal text-muted-foreground">(સમીક્ષા કતાર)</span>
+        </h1>
+        <p className="text-sm text-muted-foreground mt-2">
           {reviews.length} pair{reviews.length === 1 ? "" : "s"} scored between 0.75 and 0.90, or sent here by the chaining
           guard. Highest score first.
         </p>
       </div>
 
-      <Alert>
-        <AlertTitle>Read-only for now</AlertTitle>
-        <AlertDescription>
-          Approve and reject arrive in a later step. Until then this shows exactly what an officer would compare.
-        </AlertDescription>
-      </Alert>
 
       {reviews.length === 0 && (
         <p className="py-8 text-center text-muted-foreground">
@@ -31,12 +28,15 @@ export default async function ReviewPage() {
       )}
 
       {reviews.map(({ candidate, a, b }) => (
-        <Card key={candidate.pair_key}>
-          <CardHeader>
-            <CardTitle className="font-mono text-sm">{candidate.pair_key}</CardTitle>
+        <Card key={candidate.pair_key} className="hover-card border-l-4 border-l-amber-500/50 shadow-sm overflow-hidden">
+          <CardHeader className="bg-muted/10 border-b border-border/50">
+            <CardTitle className="font-mono text-sm flex items-center justify-between">
+              <span>{candidate.record_a_id} | {candidate.record_b_id}</span>
+              <Badge variant="outline" className="bg-background">Pair Key: {candidate.pair_key}</Badge>
+            </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="grid gap-3 md:grid-cols-2">
+          <CardContent className="pt-6">
+            <div className="grid gap-6 md:grid-cols-2">
               {a ? <RecordCard record={a} /> : <p className="text-sm text-muted-foreground">{candidate.record_a_id} not found</p>}
               {b ? <RecordCard record={b} /> : <p className="text-sm text-muted-foreground">{candidate.record_b_id} not found</p>}
             </div>
@@ -47,6 +47,9 @@ export default async function ReviewPage() {
               reviewStatus={candidate.review_status}
             />
           </CardContent>
+          <CardFooter className="pt-4 border-t border-border/50 bg-muted/5 flex justify-end">
+            <ReviewActions pairKey={candidate.pair_key} />
+          </CardFooter>
         </Card>
       ))}
     </div>

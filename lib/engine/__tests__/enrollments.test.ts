@@ -26,7 +26,7 @@ describe("deriveEnrollments", () => {
     ]);
     const pension = enrollments.find((e) => e.sourceRecordId === "PEN-1");
     expect(pension).toEqual({
-      personId: resolved.personIdByRecord.get("PEN-1"), familyId: "GJ-FID-000001",
+      basis: "record", personId: resolved.personIdByRecord.get("PEN-1"), familyId: "GJ-FID-000001",
       schemeCode: "OLD_AGE_PENSION", sourceRecordId: "PEN-1", monthlyAmount: 1000,
     });
   });
@@ -35,7 +35,7 @@ describe("deriveEnrollments", () => {
     const { enrollments, resolved } = derive(card("RC-1", "1"));
     expect(enrollments).toEqual([
       {
-        personId: resolved.families[0].headPersonId, familyId: "GJ-FID-000001", schemeCode: "NFSA_RATION",
+        basis: "record", personId: resolved.families[0].headPersonId, familyId: "GJ-FID-000001", schemeCode: "NFSA_RATION",
         sourceRecordId: "RAT-11", monthlyAmount: null,
       },
     ]);

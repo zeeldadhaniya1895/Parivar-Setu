@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { DemoNotice } from "@/components/demo-notice";
 import { Evidence } from "@/components/evidence";
 import { RecordCard } from "@/components/record-card";
+import { RecordDeathDialog } from "@/components/record-death-dialog";
 import { ScoreBreakdown } from "@/components/score-breakdown";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -146,11 +147,12 @@ export default async function FamilyPage({ params }: { params: Promise<{ id: str
       </section>
 
       {flags.length > 0 && (
-        <section className="space-y-3">
-          <h2 className="text-lg font-semibold">Flags</h2>
+        <section className="space-y-4">
+          <h2 className="text-xl font-bold tracking-tight">Flags <span className="text-base font-normal text-muted-foreground ml-1">(ફ્લેગ્સ)</span></h2>
+          <div className="grid gap-4">
           {flags.map((flag) => (
-            <Card key={flag.id}>
-              <CardHeader>
+            <Card key={flag.id} className="hover-card border-l-4" style={{ borderLeftColor: `var(--${flag.severity === "high" ? "destructive" : flag.severity === "medium" ? "primary" : "muted"})` }}>
+              <CardHeader className="bg-muted/10 pb-4">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge variant={SEVERITY_VARIANT[flag.severity]}>{flag.severity}</Badge>
                   <CardTitle>{FLAG_LABELS[flag.type] ?? flag.type}</CardTitle>
@@ -161,29 +163,31 @@ export default async function FamilyPage({ params }: { params: Promise<{ id: str
               <CardContent><Evidence value={flag.evidence} /></CardContent>
             </Card>
           ))}
+          </div>
         </section>
       )}
 
-      <section className="space-y-3">
-        <h2 className="text-lg font-semibold">Members</h2>
-        <div className="overflow-x-auto rounded-lg border">
+      <section className="space-y-4">
+        <h2 className="text-xl font-bold tracking-tight">Members <span className="text-base font-normal text-muted-foreground ml-1">(સભ્યો)</span></h2>
+        <div className="overflow-hidden rounded-xl border shadow-sm">
           <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Relation</TableHead>
-                <TableHead>Born</TableHead>
-                <TableHead>Age</TableHead>
-                <TableHead>Marital</TableHead>
-                <TableHead>Aadhaar</TableHead>
-                <TableHead className="text-right">Records</TableHead>
+            <TableHeader className="bg-muted/30">
+              <TableRow className="hover:bg-transparent">
+                <TableHead>Name <span className="text-xs text-muted-foreground font-normal block">નામ</span></TableHead>
+                <TableHead>Relation <span className="text-xs text-muted-foreground font-normal block">સંબંધ</span></TableHead>
+                <TableHead>Born <span className="text-xs text-muted-foreground font-normal block">જન્મ</span></TableHead>
+                <TableHead>Age <span className="text-xs text-muted-foreground font-normal block">ઉંમર</span></TableHead>
+                <TableHead>Marital <span className="text-xs text-muted-foreground font-normal block">વૈવાહિક</span></TableHead>
+                <TableHead>Aadhaar <span className="text-xs text-muted-foreground font-normal block">આધાર</span></TableHead>
+                <TableHead className="text-right">Records <span className="text-xs text-muted-foreground font-normal block">રેકોર્ડ્સ</span></TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {members.map(({ member, person, lineage }) => (
-                <TableRow key={person.id}>
+                <TableRow key={person.id} className="transition-colors hover:bg-muted/50 group">
                   <TableCell>
-                    <span className="font-medium">{person.canonical_name}</span>{" "}
+                    <span className="font-medium group-hover:text-primary transition-colors">{person.canonical_name}</span>{" "}
                     <span className="font-mono text-xs text-muted-foreground">{person.id}</span>
                     {person.is_deceased && <Badge variant="destructive" className="ml-2">Deceased {person.deceased_on ?? ""}</Badge>}
                   </TableCell>
@@ -193,6 +197,15 @@ export default async function FamilyPage({ params }: { params: Promise<{ id: str
                   <TableCell>{person.marital_status ?? "—"}</TableCell>
                   <TableCell className="font-mono text-xs">{maskUid(person.uid_last4)}</TableCell>
                   <TableCell className="text-right tabular-nums">{lineage.records.length}</TableCell>
+                  <TableCell className="text-right">
+                    {!person.is_deceased && (
+                      <RecordDeathDialog
+                        familyId={family.id}
+                        anchorRecordId={person.anchor_record_id}
+                        personName={person.canonical_name.split(" ")[0]}
+                      />
+                    )}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -246,25 +259,27 @@ export default async function FamilyPage({ params }: { params: Promise<{ id: str
         ))}
       </section>
 
-      <section className="space-y-3">
-        <h2 className="text-lg font-semibold">Eligibility</h2>
-        <DemoNotice />
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-xl font-bold tracking-tight">Eligibility <span className="text-base font-normal text-muted-foreground ml-1">(લાયકાત)</span></h2>
+          <DemoNotice />
+        </div>
 
-        <h3 className="text-sm font-semibold text-muted-foreground">Family schemes</h3>
-        <div className="overflow-x-auto rounded-lg border">
+        <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Family schemes</h3>
+        <div className="overflow-hidden rounded-xl border shadow-sm">
           <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Scheme</TableHead>
-                <TableHead>Eligible</TableHead>
-                <TableHead>Enrollment</TableHead>
-                <TableHead>Why</TableHead>
+            <TableHeader className="bg-muted/30">
+              <TableRow className="hover:bg-transparent">
+                <TableHead>Scheme <span className="text-xs text-muted-foreground font-normal block">યોજના</span></TableHead>
+                <TableHead>Eligible <span className="text-xs text-muted-foreground font-normal block">લાયક</span></TableHead>
+                <TableHead>Enrollment <span className="text-xs text-muted-foreground font-normal block">નોંધણી</span></TableHead>
+                <TableHead>Why <span className="text-xs text-muted-foreground font-normal block">કારણ</span></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {familyRows.map((row) => (
-                <TableRow key={row.scheme_code}>
-                  <TableCell>{schemeName(row.scheme_code)}</TableCell>
+                <TableRow key={row.scheme_code} className="transition-colors hover:bg-muted/50">
+                  <TableCell className="font-medium">{schemeName(row.scheme_code)}</TableCell>
                   <TableCell><Badge variant={row.eligible ? "default" : "outline"}>{row.eligible ? "Eligible" : "Not eligible"}</Badge></TableCell>
                   <TableCell><EnrolledCell row={row} /></TableCell>
                   <TableCell><Reasons row={row} /></TableCell>
@@ -274,22 +289,22 @@ export default async function FamilyPage({ params }: { params: Promise<{ id: str
           </Table>
         </div>
 
-        <h3 className="text-sm font-semibold text-muted-foreground">Schemes for each member</h3>
-        <div className="overflow-x-auto rounded-lg border">
+        <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mt-6">Schemes for each member</h3>
+        <div className="overflow-hidden rounded-xl border shadow-sm">
           <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Member</TableHead>
-                <TableHead>Scheme</TableHead>
-                <TableHead>Eligible</TableHead>
-                <TableHead>Enrollment</TableHead>
-                <TableHead>Why</TableHead>
+            <TableHeader className="bg-muted/30">
+              <TableRow className="hover:bg-transparent">
+                <TableHead>Member <span className="text-xs text-muted-foreground font-normal block">સભ્ય</span></TableHead>
+                <TableHead>Scheme <span className="text-xs text-muted-foreground font-normal block">યોજના</span></TableHead>
+                <TableHead>Eligible <span className="text-xs text-muted-foreground font-normal block">લાયક</span></TableHead>
+                <TableHead>Enrollment <span className="text-xs text-muted-foreground font-normal block">નોંધણી</span></TableHead>
+                <TableHead>Why <span className="text-xs text-muted-foreground font-normal block">કારણ</span></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {sortedPersonRows.map((row) => (
-                <TableRow key={`${row.person_id}|${row.scheme_code}`}>
-                  <TableCell>{nameOf.get(row.person_id ?? "") ?? row.person_id}</TableCell>
+                <TableRow key={`${row.person_id}|${row.scheme_code}`} className="transition-colors hover:bg-muted/50 group">
+                  <TableCell className="font-medium group-hover:text-primary transition-colors">{nameOf.get(row.person_id ?? "") ?? row.person_id}</TableCell>
                   <TableCell>{schemeName(row.scheme_code)}</TableCell>
                   <TableCell><Badge variant={row.eligible ? "default" : "outline"}>{row.eligible ? "Eligible" : "Not eligible"}</Badge></TableCell>
                   <TableCell><EnrolledCell row={row} /></TableCell>

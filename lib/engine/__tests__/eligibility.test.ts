@@ -107,7 +107,7 @@ describe("config", () => {
   });
 
   it("rejects an unknown operator, a duplicate code, and a missing version", () => {
-    const scheme = { code: "X", name: "x", nameGu: "x", scope: "person", enrollment: "none" };
+    const scheme = { code: "X", name: "x", nameGu: "x", scope: "person", enrollment: "none", manualVerificationRequired: false, monthlyBenefit: null };
     const good = { version: "1", notice: "n", schemes: [{ ...scheme, rule: { all: [cond("age", "gte", 1)] } }] };
     expect(() => parseSchemesConfig(good)).not.toThrow();
     expect(() => parseSchemesConfig({
@@ -115,6 +115,20 @@ describe("config", () => {
     })).toThrow(/unknown operator/);
     expect(() => parseSchemesConfig({ ...good, schemes: [good.schemes[0], good.schemes[0]] })).toThrow(/duplicate/);
     expect(() => parseSchemesConfig({ ...good, version: "" })).toThrow(/version/);
+  });
+
+  it("requires monthlyBenefit to be a whole number of rupees or null, and manualVerificationRequired a boolean", () => {
+    const scheme = {
+      code: "X", name: "x", nameGu: "x", scope: "person", enrollment: "none",
+      manualVerificationRequired: false, monthlyBenefit: null, rule: { all: [cond("age", "gte", 1)] },
+    };
+    const withScheme = (o: Record<string, unknown>) => ({ version: "1", notice: "n", schemes: [{ ...scheme, ...o }] });
+    expect(() => parseSchemesConfig(withScheme({ monthlyBenefit: 1000 }))).not.toThrow();
+    expect(() => parseSchemesConfig(withScheme({ monthlyBenefit: -5 }))).toThrow(/monthlyBenefit/);
+    expect(() => parseSchemesConfig(withScheme({ monthlyBenefit: 12.5 }))).toThrow(/monthlyBenefit/);
+    expect(() => parseSchemesConfig(withScheme({ monthlyBenefit: "1000" }))).toThrow(/monthlyBenefit/);
+    expect(() => parseSchemesConfig(withScheme({ monthlyBenefit: undefined }))).toThrow(/monthlyBenefit/);
+    expect(() => parseSchemesConfig(withScheme({ manualVerificationRequired: "yes" }))).toThrow(/manualVerificationRequired/);
   });
 });
 
@@ -224,7 +238,7 @@ describe("evaluateEligibility", () => {
   it("a family-scope scheme sees only family fields", () => {
     const familyOnly = parseSchemesConfig({
       version: "t", notice: "demo", schemes: [{
-        code: "F_ONLY", name: "f", nameGu: "f", scope: "family", enrollment: "none",
+        code: "F_ONLY", name: "f", nameGu: "f", scope: "family", enrollment: "none", manualVerificationRequired: false, monthlyBenefit: null,
         rule: { all: [cond("age", "gte", 0)] },
       }],
     });
@@ -239,7 +253,7 @@ describe("evaluateEligibility", () => {
   it("exposes family.size and skips merged families", () => {
     const sized = parseSchemesConfig({
       version: "t", notice: "demo", schemes: [{
-        code: "BIG", name: "b", nameGu: "b", scope: "family", enrollment: "none",
+        code: "BIG", name: "b", nameGu: "b", scope: "family", enrollment: "none", manualVerificationRequired: false, monthlyBenefit: null,
         rule: { all: [cond("family.size", "gte", 2)] },
       }],
     });
@@ -273,7 +287,7 @@ describe("analyzeGaps", () => {
     familyId: string, personId: string | null, schemeCode: string, eligible: boolean,
   ): EligibilityResult => ({ familyId, personId, schemeCode, eligible, reasons: [], rulesVersion: "t" });
   const enrol = (personId: string, familyId: string, schemeCode: string, rec: string, amount: number | null): Enrollment =>
-    ({ personId, familyId, schemeCode, sourceRecordId: rec, monthlyAmount: amount });
+    ({ basis: "record", personId, familyId, schemeCode, sourceRecordId: rec, monthlyAmount: amount });
 
   it("eligible but not enrolled", () => {
     const gaps = analyzeGaps(

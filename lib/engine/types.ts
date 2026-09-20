@@ -125,6 +125,13 @@ export interface ReviewDecision {
 
 // ---- resolution --------------------------------------------------------------------------
 
+export interface FamilyEvent {
+  type: "death" | "marital_status_change";
+  subjectRecordId: string;
+  date: string | null;
+  newMaritalStatus: Marital | null;
+}
+
 export interface Person {
   id: string;
   anchorRecordId: string;
@@ -205,13 +212,30 @@ export interface ResolveResult {
 export type JsonValue =
   | string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 
-export interface Enrollment {
-  personId: string;
-  familyId: string;
-  schemeCode: string;
-  sourceRecordId: string;
-  monthlyAmount: number | null;
-}
+/**
+ * A benefit a person or family receives. `record` enrollments come from a source record (a pension
+ * or scholarship file, a ration card). `auto` benefits have no record: the rules found the person
+ * eligible for a scheme that needs no manual verification, so the benefit starts by itself.
+ */
+export type Enrollment =
+  | {
+      basis: "record";
+      personId: string;
+      familyId: string;
+      schemeCode: string;
+      sourceRecordId: string;
+      monthlyAmount: number | null;
+    }
+  | {
+      basis: "auto";
+      personId: string;
+      familyId: string;
+      schemeCode: string;
+      sourceRecordId: null;
+      monthlyAmount: number | null;
+    };
+
+export type RecordEnrollment = Extract<Enrollment, { basis: "record" }>;
 
 export type AnomalyType =
   | "deceased_beneficiary" | "duplicate_enrollment" | "multi_household"
@@ -249,6 +273,10 @@ export interface SchemeConfig {
   nameGu: string;
   scope: "person" | "family";
   enrollment: EnrollmentSource;
+  /** True: an officer must verify before the benefit starts. False: it starts automatically. */
+  manualVerificationRequired: boolean;
+  /** Demo monthly benefit in rupees, or null when the scheme pays no cash amount. */
+  monthlyBenefit: number | null;
   rule: Rule;
 }
 

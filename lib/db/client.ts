@@ -20,13 +20,18 @@ export function db(): SupabaseClient {
 
 const PAGE_SIZE = 1000;
 
-/** Read every row of a table, paging past Supabase's per-request row limit. */
-export async function fetchAll<Row>(table: string, orderBy: string, columns = "*"): Promise<Row[]> {
+/** Equality filters: every [column, value] pair must match. */
+export type Where = readonly (readonly [column: string, value: string | number | boolean])[];
+
+/** Read every row of a table (optionally filtered), paging past Supabase's per-request row limit. */
+export async function fetchAll<Row>(
+  table: string, orderBy: string, columns = "*", where: Where = [],
+): Promise<Row[]> {
   const rows: Row[] = [];
   for (let from = 0; ; from += PAGE_SIZE) {
-    const { data, error } = await db()
-      .from(table)
-      .select(columns)
+    let query = db().from(table).select(columns);
+    for (const [column, value] of where) query = query.eq(column, value);
+    const { data, error } = await query
       .order(orderBy)
       .range(from, from + PAGE_SIZE - 1)
       .returns<Row[]>();

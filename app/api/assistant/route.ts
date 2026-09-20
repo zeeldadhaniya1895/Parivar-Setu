@@ -3,7 +3,7 @@
 // Response: { answer: string, source: "gemini" | "fallback" }
 
 import { currentAsOfDate } from "@/lib/asof";
-import { getFamilyDetail } from "@/lib/db/queries";
+import { getFamilySummary } from "@/lib/db/queries";
 import { buildFacts, askAssistant } from "@/lib/llm/assistant";
 
 interface RequestBody {
@@ -29,7 +29,7 @@ export async function POST(request: Request) {
   }
   const resolvedLang = lang === "gu" ? "gu" : "en";
 
-  const detail = await getFamilyDetail(familyId);
+  const detail = await getFamilySummary(familyId);
   if (!detail) {
     return Response.json({ error: "Family not found" }, { status: 404 });
   }

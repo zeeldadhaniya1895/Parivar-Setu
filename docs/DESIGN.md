@@ -34,8 +34,8 @@ Real precedent: Haryana's Parivar Pehchan Patra (8 digit family ID, operator-ass
 
 Role is chosen with a toggle stored in a cookie. There is no authentication; the UI shows a visible "Demo mode" label.
 
-- **Department officer:** dashboard, families, match lineage, flags, review queue, recording life events.
-- **Citizen:** looks up a Family ID, sees eligible schemes, asks the assistant.
+- **Department officer:** dashboard, families, match lineage, flags, review queue, recording life events, the per-scheme family lists (with CSV download), and answering citizen grievances.
+- **Citizen:** looks up a Family ID, sees which schemes reach the family and which are waiting for an officer, asks the assistant, and files a grievance about a scheme they are not getting.
 
 ## 3. Scope
 
@@ -107,7 +107,7 @@ docs/                    DESIGN.md, ARCHITECTURE.md, diagram
 
 Tables fall into two groups:
 
-- **Inputs (never truncated by the pipeline):** `source_records`, `review_decisions`, `family_events`, `audit_log`
+- **Inputs (never truncated by the pipeline):** `source_records`, `review_decisions`, `family_events`, `grievances`, `audit_log`
 - **Derived (truncated and rebuilt on every pipeline run):** `persons`, `match_candidates`, `families`, `family_members`, `enrollments`, `eligibility_results`, `anomaly_flags`, plus `pipeline_runs` which is appended
 
 Enable Row Level Security on every table with no policies, so the anon key can read nothing. The server uses the service role key.
@@ -217,10 +217,11 @@ family_members
   -- partial unique index: unique (person_id) where valid_to is null
 
 enrollments
-  person_id         text
+  person_id         text           -- for family-scope schemes, the family head
   family_id         text
   scheme_code       text
-  source_record_id  text
+  source_record_id  text null      -- null for benefits that started automatically
+  basis             text           -- record | auto
   monthly_amount    integer null
 
 eligibility_results
@@ -368,9 +369,36 @@ Global rule before any scheme: deceased persons are never eligible.
 
 Each result stores every condition with its actual value and pass or fail.
 
+**Manual verification and automatic benefits.** Every scheme in `config/schemes.json` carries `manualVerificationRequired` and `monthlyBenefit` (demo rupees, or null). Manual verification: `WIDOW_ASSIST`, `VAHLI_DIKRI`, `PMJAY_MA`. Automatic: `NFSA_RATION` (no cash amount), `OLD_AGE_PENSION` 1000, `SCHOLARSHIP` 500.
+
+- A person or family eligible for an automatic scheme, with no record already covering it, gets an `auto` enrollment: the benefit starts without an application. It has no source record (`source_record_id` null) and is labelled "started automatically" everywhere.
+- A person or family eligible for a manual-verification scheme is shown as "eligible, waiting for officer verification" and receives nothing until an officer acts.
+- Only `record` enrollments are audited for leakage and anomalies. An automatic benefit is granted because the rules pass, so it can never be leakage.
+- A family-scope benefit is matched by family and scheme, and recorded on the family head.
+
 **Gap analysis:**
-- **Eligible not enrolled:** eligible result with no matching enrollment. For discovery-only schemes, every eligible result counts.
-- **Enrolled not eligible:** enrollment with an ineligible result. Adds that benefit to the leakage estimate.
+- **Eligible not enrolled:** eligible result with no matching enrollment (record or automatic). Because automatic schemes are granted, what remains is exactly the manual-verification and discovery-only schemes. For discovery-only schemes, every eligible result counts.
+- **Enrolled not eligible:** a record enrollment with an ineligible result. Adds that benefit to the leakage estimate.
+
+### 7.6b Grievances
+
+A citizen who is not receiving a scheme (status "eligible, waiting for officer verification" or "not eligible") can ask an officer why. Stored in `grievances` (an input table, never truncated):
+
+```
+grievances
+  id                    bigserial pk
+  family_id             text
+  person_id             text null      -- null for family-scope schemes
+  scheme_code           text
+  message               text           -- 5 to 500 characters
+  eligibility_snapshot  jsonb          -- what the system said when it was filed, built on the server
+  status                text           -- pending | resolved
+  officer_response      text null
+  answered_by           text null
+  created_at, resolved_at
+```
+
+Filing checks that the family, scheme and member exist, refuses a scheme the family already receives, and returns the existing open question instead of creating a duplicate. Answering is allowed once (a second answer is refused). Both actions write to the audit log (`grievance_filed`, `grievance_answered`). The citizen sees the answer on their page.
 
 ### 7.7 Life events (P8)
 

@@ -51,7 +51,7 @@ export function parseSchemesConfig(json: unknown): SchemesConfig {
   const parsed = schemes.map((s, i): SchemeConfig => {
     const path = `schemes[${i}]`;
     if (!isObject(s)) throw new Error(`${path}: must be an object`);
-    const { code, name, nameGu, scope, enrollment, rule } = s;
+    const { code, name, nameGu, scope, enrollment, manualVerificationRequired, monthlyBenefit, rule } = s;
     if (typeof code !== "string" || code === "") throw new Error(`${path}: needs a code`);
     if (seen.has(code)) throw new Error(`${path}: duplicate scheme code ${code}`);
     seen.add(code);
@@ -60,8 +60,16 @@ export function parseSchemesConfig(json: unknown): SchemesConfig {
     if (typeof enrollment !== "string" || !ENROLLMENT_SOURCES.includes(enrollment)) {
       throw new Error(`${path}: invalid enrollment source`);
     }
+    if (typeof manualVerificationRequired !== "boolean") {
+      throw new Error(`${path}: manualVerificationRequired must be a boolean`);
+    }
+    if (monthlyBenefit !== null && (typeof monthlyBenefit !== "number" || !Number.isInteger(monthlyBenefit) || monthlyBenefit < 0)) {
+      throw new Error(`${path}: monthlyBenefit must be a whole number of rupees or null`);
+    }
     return {
       code, name, nameGu, scope, enrollment: enrollment as SchemeConfig["enrollment"],
+      manualVerificationRequired,
+      monthlyBenefit,
       rule: parseRule(rule, `${path}.rule`),
     };
   });
@@ -252,8 +260,10 @@ export function analyzeGaps(
     }
   }
 
+  // Automatic benefits are granted because the rules pass, so only record-backed ones can leak.
   const enrolledNotEligible: GapAnalysis["enrolledNotEligible"] = [];
   for (const e of enrollments) {
+    if (e.basis !== "record") continue;
     const scheme = schemeByCode.get(e.schemeCode);
     if (!scheme) continue;
     const result = resultByKey.get(keyOf(scheme, e.familyId, e.personId));

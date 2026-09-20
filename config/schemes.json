@@ -8,7 +8,17 @@
       "nameGu": "ખાદ્ય સુરક્ષા રાશન",
       "scope": "family",
       "enrollment": "ration_card",
-      "rule": { "all": [{ "field": "family.resolved_income", "op": "lte", "value": 120000 }] }
+      "manualVerificationRequired": false,
+      "monthlyBenefit": null,
+      "rule": {
+        "all": [
+          {
+            "field": "family.resolved_income",
+            "op": "lte",
+            "value": 120000
+          }
+        ]
+      }
     },
     {
       "code": "OLD_AGE_PENSION",
@@ -16,10 +26,20 @@
       "nameGu": "વૃદ્ધ સહાય પેન્શન",
       "scope": "person",
       "enrollment": "pension_record",
+      "manualVerificationRequired": false,
+      "monthlyBenefit": 1000,
       "rule": {
         "all": [
-          { "field": "age", "op": "gte", "value": 60 },
-          { "field": "family.resolved_income", "op": "lte", "value": 120000 }
+          {
+            "field": "age",
+            "op": "gte",
+            "value": 60
+          },
+          {
+            "field": "family.resolved_income",
+            "op": "lte",
+            "value": 120000
+          }
         ]
       }
     },
@@ -29,11 +49,25 @@
       "nameGu": "ગંગા સ્વરૂપા વિધવા સહાય",
       "scope": "person",
       "enrollment": "pension_record",
+      "manualVerificationRequired": true,
+      "monthlyBenefit": 1250,
       "rule": {
         "all": [
-          { "field": "gender", "op": "eq", "value": "F" },
-          { "field": "marital_status", "op": "eq", "value": "widowed" },
-          { "field": "age", "op": "gte", "value": 18 }
+          {
+            "field": "gender",
+            "op": "eq",
+            "value": "F"
+          },
+          {
+            "field": "marital_status",
+            "op": "eq",
+            "value": "widowed"
+          },
+          {
+            "field": "age",
+            "op": "gte",
+            "value": 18
+          }
         ]
       }
     },
@@ -43,10 +77,20 @@
       "nameGu": "વિદ્યાર્થી શિષ્યવૃત્તિ",
       "scope": "person",
       "enrollment": "scholarship_record",
+      "manualVerificationRequired": false,
+      "monthlyBenefit": 500,
       "rule": {
         "all": [
-          { "field": "is_student", "op": "eq", "value": true },
-          { "field": "family.resolved_income", "op": "lte", "value": 250000 }
+          {
+            "field": "is_student",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "field": "family.resolved_income",
+            "op": "lte",
+            "value": 250000
+          }
         ]
       }
     },
@@ -56,11 +100,25 @@
       "nameGu": "વહાલી દીકરી યોજના",
       "scope": "person",
       "enrollment": "none",
+      "manualVerificationRequired": true,
+      "monthlyBenefit": null,
       "rule": {
         "all": [
-          { "field": "gender", "op": "eq", "value": "F" },
-          { "field": "dob", "op": "on_or_after", "value": "2019-08-02" },
-          { "field": "family.resolved_income", "op": "lte", "value": 200000 }
+          {
+            "field": "gender",
+            "op": "eq",
+            "value": "F"
+          },
+          {
+            "field": "dob",
+            "op": "on_or_after",
+            "value": "2019-08-02"
+          },
+          {
+            "field": "family.resolved_income",
+            "op": "lte",
+            "value": 200000
+          }
         ]
       }
     },
@@ -70,7 +128,17 @@
       "nameGu": "PMJAY-મા આરોગ્ય કવચ",
       "scope": "family",
       "enrollment": "none",
-      "rule": { "all": [{ "field": "family.resolved_income", "op": "lte", "value": 500000 }] }
+      "manualVerificationRequired": true,
+      "monthlyBenefit": null,
+      "rule": {
+        "all": [
+          {
+            "field": "family.resolved_income",
+            "op": "lte",
+            "value": 500000
+          }
+        ]
+      }
     }
   ]
 }

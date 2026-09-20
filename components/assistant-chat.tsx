@@ -11,10 +11,10 @@ interface Message {
   source?: "gemini" | "fallback";
 }
 
-export function AssistantChat({ familyId }: { familyId: string }) {
+export function AssistantChat({ familyId, initialLang = "en" }: { familyId: string; initialLang?: "en" | "gu" }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
-  const [lang, setLang] = useState<"en" | "gu">("en");
+  const [lang, setLang] = useState<"en" | "gu">(initialLang);
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 

@@ -1,112 +1,97 @@
-// Template-based fallback (DESIGN.md 7.9). Lists eligible schemes and the main reason for each,
-// directly from eligibility results. No LLM call, always available.
+// Template-based fallback (DESIGN.md 7.9). Lists the schemes that apply, who they apply to and the
+// main reason, directly from eligibility results. No LLM call, always available.
 
-import type { AssistantFacts } from "./assistant";
+import { STATUS_LABELS, isReceiving, type BenefitStatus, type Lang } from "../benefit-status";
+import { RELATION_LABELS, RELATION_LABELS_GU } from "../format";
+import { describeRule } from "../rule-text";
+import type { AssistantFacts, EligibilityFact, MemberFact } from "./assistant";
 
-interface SchemeEntry {
-  name: string;
-  nameGu: string;
-  eligible: boolean;
-  enrolled: boolean;
-  mainReason: string | null;
+const TEXT = {
+  en: {
+    size: (n: number) => `Your family has ${n} member(s).`,
+    receiving: "Benefits your family is receiving:",
+    waiting: "Eligible, waiting for an officer to verify (you can ask an officer why):",
+    none: "Based on the current rules, no schemes apply to this family right now.",
+    other: "For every other scheme, the family's records do not meet the rules. You can ask an officer if you think this is wrong.",
+    wholeFamily: "whole family",
+    member: (n: string) => `family member ${n}`,
+    age: (band: string) => `age ${band}`,
+    note: "Note: All thresholds are simplified demo values, not official criteria. This is information, not a promise of payment.",
+  },
+  gu: {
+    size: (n: number) => `તમારા પરિવારમાં ${n} સભ્ય(ઓ) છે.`,
+    receiving: "તમારા પરિવારને મળતા લાભ:",
+    waiting: "પાત્ર, અધિકારીની ચકાસણીની રાહ (તમે અધિકારીને કારણ પૂછી શકો છો):",
+    none: "હાલના નિયમો મુજબ, આ પરિવાર માટે હાલમાં કોઈ યોજના લાગુ પડતી નથી.",
+    other: "બાકીની બધી યોજનાઓ માટે પરિવારના રેકોર્ડ નિયમોમાં બેસતા નથી. જો તમને ભૂલ લાગે તો અધિકારીને પૂછી શકો છો.",
+    wholeFamily: "આખો પરિવાર",
+    member: (n: string) => `પરિવારના સભ્ય ${n}`,
+    age: (band: string) => `ઉંમર ${band}`,
+    note: "નોંધ: બધી મર્યાદાઓ સરળ ડેમો મૂલ્યો છે, સત્તાવાર માપદંડ નથી. આ માહિતી છે, ચુકવણીની ખાતરી નથી.",
+  },
+} as const;
+
+function who(entry: EligibilityFact, members: Map<string, MemberFact>, lang: Lang): string {
+  const t = TEXT[lang];
+  if (entry.memberRef === null) return t.wholeFamily;
+  const member = members.get(entry.memberRef);
+  const number = entry.memberRef.replace("member ", "");
+  const relation = member?.relation
+    ? (lang === "gu" ? RELATION_LABELS_GU : RELATION_LABELS)[member.relation]
+    : null;
+  const parts = [relation, member ? t.age(member.ageBand) : null].filter(Boolean).join(", ");
+  return parts ? `${t.member(number)} (${parts})` : t.member(number);
 }
 
-function mainReason(reasons: { rule: string; actual: string | number | boolean | null; passed: boolean }[]): string | null {
-  // The first failing rule is usually the most informative when ineligible.
-  // When eligible, the first passing rule describes the primary criterion.
-  const failing = reasons.find((r) => !r.passed);
-  if (failing) return `${failing.rule} (actual: ${String(failing.actual ?? "unknown")})`;
-  const passing = reasons.find((r) => r.passed);
-  if (passing) return `${passing.rule} (actual: ${String(passing.actual ?? "unknown")})`;
-  return null;
+/** The rules that pass, in words. The deceased check is left out: it is not a reason to celebrate. */
+function whyText(entry: EligibilityFact, lang: Lang): string {
+  return entry.reasons
+    .filter((r) => r.passed && !r.rule.startsWith("is_deceased"))
+    .map((r) => describeRule(r.rule, lang))
+    .join("; ");
 }
 
-function buildSchemeEntries(facts: AssistantFacts): SchemeEntry[] {
-  const entries: SchemeEntry[] = [];
+function line(entry: EligibilityFact, members: Map<string, MemberFact>, lang: Lang, status: BenefitStatus): string {
+  const name = lang === "gu" ? entry.schemeNameGu : entry.schemeName;
+  const label = status === "receiving_auto" ? ` (${STATUS_LABELS[status][lang]})` : "";
+  const why = whyText(entry, lang);
+  return `• ${name} — ${who(entry, members, lang)}${label}${why ? `: ${why}` : ""}`;
+}
+
+export function buildFallback(facts: AssistantFacts, lang: Lang): string {
+  const t = TEXT[lang];
+  const members = new Map(facts.members.map((m) => [m.ref, m]));
+
+  // One row per member and scheme, however the facts were assembled.
   const seen = new Set<string>();
-  for (const e of facts.eligibility) {
-    const key = e.personId ? `${e.personId}|${e.schemeCode}` : `family|${e.schemeCode}`;
-    if (seen.has(key)) continue;
+  const entries = facts.eligibility.filter((e) => {
+    const key = `${e.memberRef ?? "family"}|${e.schemeCode}`;
+    if (seen.has(key)) return false;
     seen.add(key);
-    entries.push({
-      name: e.schemeName,
-      nameGu: e.schemeNameGu,
-      eligible: e.eligible,
-      enrolled: e.enrolled,
-      mainReason: mainReason(e.reasons),
-    });
+    return true;
+  });
+
+  const receiving = entries.filter((e) => isReceiving(e.status));
+  const waiting = entries.filter((e) => e.status === "awaiting_verification");
+
+  const lines: string[] = [t.size(facts.familySize), ""];
+  if (receiving.length === 0 && waiting.length === 0) {
+    lines.push(t.none);
   }
-  return entries;
-}
-
-export function buildFallbackEn(facts: AssistantFacts): string {
-  const entries = buildSchemeEntries(facts);
-  const eligible = entries.filter((e) => e.eligible);
-  const ineligible = entries.filter((e) => !e.eligible);
-
-  const lines: string[] = [];
-  lines.push(`Your family has ${facts.familySize} member(s).`);
-  lines.push("");
-
-  if (eligible.length > 0) {
-    lines.push("Schemes you may be eligible for:");
-    for (const e of eligible) {
-      const status = e.enrolled ? "currently enrolled" : "not yet enrolled";
-      const reason = e.mainReason ? ` — ${e.mainReason}` : "";
-      lines.push(`• ${e.name} (${status})${reason}`);
-    }
-  } else {
-    lines.push("Based on the current rules, no schemes show eligibility for this family.");
-  }
-
-  if (ineligible.length > 0) {
+  if (receiving.length > 0) {
+    lines.push(t.receiving);
+    for (const e of receiving) lines.push(line(e, members, lang, e.status));
     lines.push("");
-    lines.push("Not currently eligible for:");
-    for (const e of ineligible) {
-      const reason = e.mainReason ? ` — ${e.mainReason}` : "";
-      lines.push(`• ${e.name}${reason}`);
-    }
   }
-
-  lines.push("");
-  lines.push("Note: All thresholds are simplified demo values, not official criteria.");
-  return lines.join("\n");
-}
-
-export function buildFallbackGu(facts: AssistantFacts): string {
-  const entries = buildSchemeEntries(facts);
-  const eligible = entries.filter((e) => e.eligible);
-  const ineligible = entries.filter((e) => !e.eligible);
-
-  const lines: string[] = [];
-  lines.push(`તમારા પરિવારમાં ${facts.familySize} સભ્ય(ઓ) છે.`);
-  lines.push("");
-
-  if (eligible.length > 0) {
-    lines.push("તમે આ યોજનાઓ માટે પાત્ર હોઈ શકો છો:");
-    for (const e of eligible) {
-      const status = e.enrolled ? "હાલમાં નોંધાયેલ" : "હજુ નોંધાયેલ નથી";
-      const reason = e.mainReason ? ` — ${e.mainReason}` : "";
-      lines.push(`• ${e.nameGu} (${status})${reason}`);
-    }
-  } else {
-    lines.push("હાલના નિયમો મુજબ, આ પરિવાર માટે કોઈ યોજના પાત્રતા દર્શાવતી નથી.");
-  }
-
-  if (ineligible.length > 0) {
+  if (waiting.length > 0) {
+    lines.push(t.waiting);
+    for (const e of waiting) lines.push(line(e, members, lang, e.status));
     lines.push("");
-    lines.push("હાલમાં પાત્ર નથી:");
-    for (const e of ineligible) {
-      const reason = e.mainReason ? ` — ${e.mainReason}` : "";
-      lines.push(`• ${e.nameGu}${reason}`);
-    }
   }
-
-  lines.push("");
-  lines.push("નોંધ: બધી મર્યાદાઓ સરળ ડેમો મૂલ્યો છે, સત્તાવાર માપદંડ નથી.");
-  return lines.join("\n");
+  if (entries.length > receiving.length + waiting.length) lines.push(t.other);
+  lines.push("", t.note);
+  return lines.join("\n").replace(/\n{3,}/g, "\n\n");
 }
 
-export function buildFallback(facts: AssistantFacts, lang: "en" | "gu"): string {
-  return lang === "gu" ? buildFallbackGu(facts) : buildFallbackEn(facts);
-}
+export const buildFallbackEn = (facts: AssistantFacts) => buildFallback(facts, "en");
+export const buildFallbackGu = (facts: AssistantFacts) => buildFallback(facts, "gu");

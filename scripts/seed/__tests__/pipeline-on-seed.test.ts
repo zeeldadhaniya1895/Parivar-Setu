@@ -15,7 +15,7 @@ function run() {
     void hidden;
     return row;
   });
-  return runEngine({ records, decisions: [], asOfDate: "2026-09-20", config, truth });
+  return runEngine({ records, decisions: [], events: [], asOfDate: "2026-09-20", config, truth });
 }
 
 const result = run();
@@ -92,17 +92,72 @@ describe("full pipeline on the seed", () => {
     expect(flags.map((f) => f.type)).toContain("deceased_beneficiary");
     expect(flags.find((f) => f.type === "deceased_beneficiary")?.personId).toBe(personOfTrue(motherId));
 
+    // Manual-verification schemes wait for an officer: they show as eligible, not enrolled.
+    const waiting = result.gaps.eligibleNotEnrolled.filter((g) => g.familyId === family?.id).map((g) => g.schemeCode);
+    expect(waiting).toContain("VAHLI_DIKRI"); // the granddaughter
+    expect(waiting).toContain("PMJAY_MA");
+    expect(waiting).not.toContain("OLD_AGE_PENSION"); // no manual step, so it starts by itself
+
+    // The spouse is eligible for the old-age pension, so it starts automatically.
+    const autoSchemes = result.enrollments
+      .filter((e) => e.basis === "auto" && e.familyId === family?.id)
+      .map((e) => e.schemeCode);
+    expect(autoSchemes).toContain("OLD_AGE_PENSION");
     const gaps = result.gaps.eligibleNotEnrolled.filter((g) => g.familyId === family?.id);
-    const schemes = gaps.map((g) => g.schemeCode);
-    expect(schemes).toContain("OLD_AGE_PENSION"); // the spouse
-    expect(schemes).toContain("VAHLI_DIKRI"); // the granddaughter
-    expect(schemes).toContain("PMJAY_MA");
+
     // the head is enrolled and eligible
     expect(gaps.some((g) => g.personId === personOfTrue(headId) && g.schemeCode === "OLD_AGE_PENSION")).toBe(false);
     // the dead mother's pension is paid to someone ineligible
     expect(
       result.gaps.enrolledNotEligible.some((g) => g.familyId === family?.id && g.personId === personOfTrue(motherId)),
     ).toBe(true);
+  });
+
+  it("starts benefits automatically without fake records, and never twice", () => {
+    const auto = result.enrollments.filter((e) => e.basis === "auto");
+    expect(auto.length).toBeGreaterThan(50);
+    expect(auto.every((e) => e.sourceRecordId === null)).toBe(true);
+    expect(result.enrollments.some((e) => e.sourceRecordId === "AUTO-ENROLL")).toBe(false);
+
+    const key = (e: { familyId: string; personId: string; schemeCode: string }) =>
+      `${e.familyId}|${e.personId}|${e.schemeCode}`;
+    // Automatic grants never repeat each other or a benefit a record already provides. (Two real
+    // pension records for one person are the planted double enrollments, and are flagged instead.)
+    const autoKeys = auto.map(key);
+    expect(new Set(autoKeys).size).toBe(autoKeys.length);
+    const recordKeys = new Set(result.enrollments.filter((e) => e.basis === "record").map(key));
+    expect(autoKeys.filter((k) => recordKeys.has(k))).toEqual([]);
+
+    const nfsaPerFamily = new Map<string, number>();
+    for (const e of result.enrollments.filter((x) => x.schemeCode === "NFSA_RATION")) {
+      nfsaPerFamily.set(e.familyId, (nfsaPerFamily.get(e.familyId) ?? 0) + 1);
+    }
+    expect(Math.max(...nfsaPerFamily.values())).toBe(1);
+  });
+
+  it("leaves only manual-verification and discovery schemes as eligible, not enrolled", () => {
+    const manualOrDiscovery = new Set(
+      config.schemes.filter((s) => s.manualVerificationRequired || s.enrollment === "none").map((s) => s.code),
+    );
+    expect(result.gaps.eligibleNotEnrolled.length).toBeGreaterThan(0);
+    for (const g of result.gaps.eligibleNotEnrolled) expect(manualOrDiscovery.has(g.schemeCode)).toBe(true);
+    const pending = result.stats.pendingVerificationByScheme;
+    expect(Object.keys(pending).every((code) => manualOrDiscovery.has(code))).toBe(true);
+  });
+
+  it("does not let automatic benefits raise flags or count as leakage", () => {
+    const autoIds = new Set(
+      result.enrollments.filter((e) => e.basis === "auto").map((e) => `${e.personId}|${e.schemeCode}`),
+    );
+    for (const flag of result.flags) {
+      if (flag.type !== "unanchored_beneficiary") continue;
+      const enrollments = (flag.evidence.enrollments as { recordId: string }[]) ?? [];
+      expect(enrollments.every((e) => typeof e.recordId === "string" && e.recordId !== "")).toBe(true);
+    }
+    expect(autoIds.size).toBeGreaterThan(0);
+    const recordBacked = result.enrollments.filter((e) => e.basis === "record");
+    const total = recordBacked.reduce((t, e) => t + (e.monthlyAmount ?? 0), 0);
+    expect(result.stats.estMonthlyLeakage).toBeLessThanOrEqual(total);
   });
 
   it("never marks a deceased person eligible", () => {

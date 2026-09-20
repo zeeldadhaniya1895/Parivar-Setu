@@ -1,31 +1,37 @@
 // Assistant orchestrator (DESIGN.md 7.9).
 // Builds facts from family data, calls Gemini if available, falls back to a template.
-// The LLM only receives derived, non-identifying facts: never names, IDs, village, or addresses.
+// The LLM only receives derived, non-identifying facts: never names, IDs, village, or addresses,
+// and never an exact age or income (only bands, and the rules in words).
 
+import { benefitStatus, STATUS_LABELS, type BenefitStatus } from "../benefit-status";
 import type { EligibilityRow, EnrollmentRow, FamilyRow, MemberRow, PersonRow } from "../db/queries";
 import { ageFromDob } from "../engine/eligibility";
-import { schemeName, schemeNameGu, schemeScope } from "../schemes";
+import { describeRule } from "../rule-text";
+import { schemeName, schemeNameGu, schemesConfig } from "../schemes";
 import { buildFallback } from "./fallback";
 import { callGemini, getProvider } from "./gemini";
 
 // ---- fact types --------------------------------------------------------------------------
 
-interface MemberFact {
+export interface MemberFact {
+  /** "member 1", "member 2", ...: lets an answer say who without saying a name */
+  ref: string;
   relation: string | null;
   ageBand: "0-17" | "18-59" | "60+";
   gender: "M" | "F" | null;
 }
 
-interface EligibilityFact {
-  /** Used only for deduplication inside the fallback template builder, never sent to the LLM. */
-  personId: string | null;
+export interface EligibilityFact {
+  /** Which member this is about, or null for a family-wide scheme */
+  memberRef: string | null;
   schemeCode: string;
   schemeName: string;
   schemeNameGu: string;
   scope: "person" | "family";
   eligible: boolean;
-  enrolled: boolean;
-  reasons: { rule: string; actual: string | number | boolean | null; passed: boolean }[];
+  status: BenefitStatus;
+  /** The rules, with whether each passed. No exact ages or incomes. */
+  reasons: { rule: string; passed: boolean }[];
 }
 
 export interface AssistantFacts {
@@ -68,40 +74,38 @@ export function buildFacts(
   asOfDate: string,
 ): AssistantFacts {
   const personById = new Map(persons.map((p) => [p.id, p]));
+  const refOf = new Map(members.map((m, i) => [m.person_id, `member ${i + 1}`]));
 
-  const memberFacts: MemberFact[] = members.map((m) => {
+  const memberFacts: MemberFact[] = members.map((m, i) => {
     const person = personById.get(m.person_id);
     const age = person?.dob ? ageFromDob(person.dob, asOfDate) : null;
     return {
+      ref: `member ${i + 1}`,
       relation: m.relation_to_head,
       ageBand: ageBand(age),
       gender: person?.gender ?? null,
     };
   });
 
-  const enrolledKeys = new Set(
-    enrollments.map((e) =>
-      schemeScope(e.scheme_code) === "family"
-        ? `family|${e.scheme_code}`
-        : `${e.person_id}|${e.scheme_code}`,
-    ),
-  );
+  const statusEnrollments = enrollments.map((e) => ({
+    personId: e.person_id, schemeCode: e.scheme_code, basis: e.basis,
+  }));
+  const schemeByCode = new Map(schemesConfig.schemes.map((s) => [s.code, s]));
 
-  const eligibilityFacts: EligibilityFact[] = eligibility.map((row) => {
-    const key = row.person_id === null
-      ? `family|${row.scheme_code}`
-      : `${row.person_id}|${row.scheme_code}`;
-    return {
-      personId: row.person_id,
-      schemeCode: row.scheme_code,
-      schemeName: schemeName(row.scheme_code),
-      schemeNameGu: schemeNameGu(row.scheme_code),
-      scope: row.person_id === null ? "family" : "person",
-      eligible: row.eligible,
-      enrolled: enrolledKeys.has(key),
-      reasons: row.reasons,
-    };
-  });
+  const eligibilityFacts: EligibilityFact[] = eligibility.map((row) => ({
+    memberRef: row.person_id === null ? null : (refOf.get(row.person_id) ?? null),
+    schemeCode: row.scheme_code,
+    schemeName: schemeName(row.scheme_code),
+    schemeNameGu: schemeNameGu(row.scheme_code),
+    scope: row.person_id === null ? "family" : "person",
+    eligible: row.eligible,
+    status: benefitStatus(
+      { schemeCode: row.scheme_code, personId: row.person_id, eligible: row.eligible },
+      statusEnrollments,
+      schemeByCode.get(row.scheme_code),
+    ),
+    reasons: row.reasons.map((r) => ({ rule: r.rule, passed: r.passed })),
+  }));
 
   return {
     familySize: members.length,
@@ -111,22 +115,25 @@ export function buildFacts(
   };
 }
 
-// ---- system prompt -----------------------------------------------------------------------
+// ---- prompt ------------------------------------------------------------------------------
 
-function systemPrompt(lang: "en" | "gu"): string {
+export function systemPrompt(lang: "en" | "gu"): string {
   const language = lang === "gu" ? "Gujarati" : "English";
   return [
     "You are a government welfare scheme assistant for Gujarat families.",
     "Answer ONLY from the facts provided below. If the answer is not in the facts, say you do not have that information.",
     `Reply in ${language}.`,
     "Keep your answer under 120 words.",
+    "Each scheme line says whether the member is receiving it, it started automatically, it is waiting for officer verification, or they are not eligible.",
+    "If a scheme is waiting for verification or the family is not eligible, tell them they can use the Ask an officer button on the page to file a question.",
     "Do not make any promises about payment amounts or dates.",
-    "Do not mention any names, IDs, addresses, or villages — only use the derived facts.",
+    "Do not mention any names, IDs, addresses, or villages. Refer to people as member 1, member 2 and so on.",
     "All eligibility thresholds are simplified demo values, not official criteria.",
   ].join(" ");
 }
 
-function userMessage(facts: AssistantFacts, question: string): string {
+export function userMessage(facts: AssistantFacts, question: string): string {
+  const memberByRef = new Map(facts.members.map((m) => [m.ref, m]));
   const lines: string[] = [];
   lines.push("--- FACTS ---");
   lines.push(`Family size: ${facts.familySize}`);
@@ -134,15 +141,17 @@ function userMessage(facts: AssistantFacts, question: string): string {
   lines.push("");
   lines.push("Members:");
   for (const m of facts.members) {
-    lines.push(`  - relation: ${m.relation ?? "unknown"}, age band: ${m.ageBand}, gender: ${m.gender ?? "unknown"}`);
+    lines.push(`  - ${m.ref}: relation ${m.relation ?? "unknown"}, age band ${m.ageBand}, gender ${m.gender ?? "unknown"}`);
   }
   lines.push("");
-  lines.push("Eligibility:");
+  lines.push("Schemes:");
   for (const e of facts.eligibility) {
-    const reasons = e.reasons
-      .map((r) => `${r.passed ? "✓" : "✗"} ${r.rule} (actual: ${String(r.actual ?? "unknown")})`)
+    const who = e.memberRef ? `${e.memberRef} (${memberByRef.get(e.memberRef)?.relation ?? "member"})` : "the whole family";
+    const rules = e.reasons
+      .filter((r) => !r.rule.startsWith("is_deceased"))
+      .map((r) => `${r.passed ? "meets" : "does not meet"}: ${describeRule(r.rule, "en")}`)
       .join("; ");
-    lines.push(`  - ${e.schemeName} (${e.schemeNameGu}): ${e.eligible ? "ELIGIBLE" : "NOT ELIGIBLE"}, ${e.enrolled ? "enrolled" : "not enrolled"}. Rules: ${reasons}`);
+    lines.push(`  - ${e.schemeName} for ${who}: ${STATUS_LABELS[e.status].en}. ${rules}`);
   }
   lines.push("--- END FACTS ---");
   lines.push("");
@@ -158,9 +167,7 @@ export async function askAssistant(
   const provider = getProvider();
 
   if (provider) {
-    const system = systemPrompt(lang);
-    const user = userMessage(facts, question);
-    const reply = await callGemini(provider, system, user);
+    const reply = await callGemini(provider, systemPrompt(lang), userMessage(facts, question));
     if (reply) {
       return { answer: reply, source: "gemini" };
     }

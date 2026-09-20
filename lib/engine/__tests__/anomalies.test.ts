@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { detectAnomalies, type AnomalyInput } from "../anomalies";
-import type { CardMerge, Enrollment, Family, MultiHousehold, Person } from "../types";
+import type { CardMerge, Family, MultiHousehold, Person, RecordEnrollment } from "../types";
 
 const person = (id: string, o: Partial<Person> = {}): Person => ({
   id, anchorRecordId: `RAT-${id}`, canonicalName: "Test Person", dob: "1950-01-01", gender: "M",
@@ -15,7 +15,7 @@ const family = (id: string, o: Partial<Family> = {}): Family => ({
 
 const enrollment = (
   personId: string, familyId: string, schemeCode: string, sourceRecordId: string, monthlyAmount: number | null,
-): Enrollment => ({ personId, familyId, schemeCode, sourceRecordId, monthlyAmount });
+): RecordEnrollment => ({ basis: "record", personId, familyId, schemeCode, sourceRecordId, monthlyAmount });
 
 const detect = (o: Partial<AnomalyInput> = {}) =>
   detectAnomalies({

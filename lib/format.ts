@@ -37,6 +37,11 @@ export const RELATION_LABELS: Record<string, string> = {
   father: "Father", mother: "Mother", other: "Other",
 };
 
+export const RELATION_LABELS_GU: Record<string, string> = {
+  head: "મુખ્ય વ્યક્તિ", spouse: "જીવનસાથી", son: "પુત્ર", daughter: "પુત્રી", son_in_law: "જમાઈ",
+  daughter_in_law: "પુત્રવધૂ", grandson: "પૌત્ર", granddaughter: "પૌત્રી", father: "પિતા", mother: "માતા", other: "અન્ય",
+};
+
 export const FLAG_LABELS: Record<string, string> = {
   deceased_beneficiary: "Deceased beneficiary",
   duplicate_enrollment: "Duplicate enrollment",

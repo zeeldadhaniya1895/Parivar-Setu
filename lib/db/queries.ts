@@ -4,6 +4,10 @@ import type { RunStats } from "../engine/evaluate";
 import type {
   AnomalyType, JsonValue, MatchDecision, Reason, ReviewStatus, ScoreBreakdown, Severity, SourceRecord,
 } from "../engine/types";
+import { schemesConfig, schemeName } from "../schemes";
+import { describeRule } from "../rule-text";
+import { RELATION_LABELS } from "../format";
+import type { SchemeFamilyRow } from "../reports";
 import { db, fetchAll } from "./client";
 
 const SOURCE_COLUMNS =
@@ -64,7 +68,9 @@ export interface EnrollmentRow {
   person_id: string;
   family_id: string;
   scheme_code: string;
-  source_record_id: string;
+  /** null for benefits that started automatically */
+  source_record_id: string | null;
+  basis: "record" | "auto";
   monthly_amount: number | null;
 }
 
@@ -92,6 +98,9 @@ export interface CandidateRow {
 // ---- helpers -----------------------------------------------------------------------------
 
 const unique = <T>(items: readonly T[]): T[] => [...new Set(items)];
+
+const RELATION_ORDER = ["head", "spouse", "mother", "father", "son", "daughter", "daughter_in_law",
+  "son_in_law", "grandson", "granddaughter", "other"];
 
 /** Values that would break out of a PostgREST filter expression are removed. */
 const safeSearch = (q: string) => q.replace(/[%,()*\\]/g, " ").trim();
@@ -308,8 +317,6 @@ export async function getFamilyDetail(id: string): Promise<FamilyDetail | null> 
   const personById = new Map(persons.map((p) => [p.id, p]));
   const lineage = await buildLineage(persons);
 
-  const relationOrder = ["head", "spouse", "mother", "father", "son", "daughter", "daughter_in_law",
-    "son_in_law", "grandson", "granddaughter", "other"];
   const details: MemberDetail[] = members
     .flatMap((m) => {
       const person = personById.get(m.person_id);
@@ -318,8 +325,8 @@ export async function getFamilyDetail(id: string): Promise<FamilyDetail | null> 
     })
     .sort(
       (a, b) =>
-        relationOrder.indexOf(a.member.relation_to_head ?? "other") -
-          relationOrder.indexOf(b.member.relation_to_head ?? "other") ||
+        RELATION_ORDER.indexOf(a.member.relation_to_head ?? "other") -
+          RELATION_ORDER.indexOf(b.member.relation_to_head ?? "other") ||
         a.person.id.localeCompare(b.person.id),
     );
 
@@ -389,4 +396,171 @@ export async function pendingReviews(): Promise<PendingReview[]> {
     a: byId.get(candidate.record_a_id) ?? null,
     b: byId.get(candidate.record_b_id) ?? null,
   }));
+}
+
+// ---- per-scheme family lists (officer dashboard and CSV) ---------------------------------
+
+export interface SchemeFamilyLists {
+  scheme: { code: string; name: string; scope: "person" | "family"; manualVerificationRequired: boolean };
+  /** Families that receive the scheme today, from records or started automatically */
+  receiving: SchemeFamilyRow[];
+  /** Families with an eligible person (or family) who is not receiving it: awaiting an officer */
+  pending: SchemeFamilyRow[];
+}
+
+const firstName = (name: string) => name.split(" ")[0];
+
+/**
+ * Who gets a scheme, and who is eligible but waiting. Built from the derived tables, so it always
+ * matches what the last pipeline run decided.
+ */
+export async function schemeFamilyLists(code: string): Promise<SchemeFamilyLists | null> {
+  const scheme = schemesConfig.schemes.find((s) => s.code === code);
+  if (!scheme) return null;
+
+  const [enrollments, eligible] = await Promise.all([
+    fetchAll<EnrollmentRow>("enrollments", "id", "*", [["scheme_code", code]]),
+    fetchAll<EligibilityRow>("eligibility_results", "id", "*", [["scheme_code", code], ["eligible", true]]),
+  ]);
+
+  const covered = new Set(
+    enrollments.map((e) => (scheme.scope === "family" ? `f|${e.family_id}` : `p|${e.person_id}`)),
+  );
+  const pendingResults = eligible.filter(
+    (r) => !covered.has(scheme.scope === "family" ? `f|${r.family_id}` : `p|${r.person_id}`),
+  );
+
+  const familyIds = unique([...enrollments.map((e) => e.family_id), ...pendingResults.map((r) => r.family_id)]);
+  const [families, members] = await Promise.all([
+    rowsIn<FamilyRow>("families", "id", familyIds),
+    rowsIn<MemberRow>("family_members", "family_id", familyIds),
+  ]);
+  const persons = await rowsIn<PersonRow>(
+    "persons", "id", unique([...members.map((m) => m.person_id), ...families.flatMap((f) => (f.head_person_id ? [f.head_person_id] : []))]),
+    "id,canonical_name",
+  );
+  const familyById = new Map(families.map((f) => [f.id, f]));
+  const personName = new Map(persons.map((p) => [p.id, p.canonical_name]));
+  const relationOf = new Map(members.map((m) => [m.person_id, m.relation_to_head]));
+  const memberCount = new Map<string, number>();
+  for (const m of members) memberCount.set(m.family_id, (memberCount.get(m.family_id) ?? 0) + 1);
+
+  const label = (personId: string) => {
+    const relation = relationOf.get(personId);
+    const name = firstName(personName.get(personId) ?? personId);
+    return relation ? `${name} (${RELATION_LABELS[relation] ?? relation})` : name;
+  };
+  const base = (familyId: string): Omit<SchemeFamilyRow, "people" | "peopleCount" | "monthlyAmount" | "started" | "rulesMet"> | null => {
+    const family = familyById.get(familyId);
+    if (!family) return null;
+    return {
+      familyId,
+      headName: family.head_person_id ? (personName.get(family.head_person_id) ?? null) : null,
+      village: family.village, taluka: family.taluka, district: family.district,
+    };
+  };
+
+  const receiving: SchemeFamilyRow[] = [];
+  const byFamily = new Map<string, EnrollmentRow[]>();
+  for (const e of enrollments) byFamily.set(e.family_id, [...(byFamily.get(e.family_id) ?? []), e]);
+  for (const [familyId, list] of byFamily) {
+    const head = base(familyId);
+    if (!head) continue;
+    const bases = new Set(list.map((e) => e.basis));
+    const people = scheme.scope === "family"
+      ? [`Whole family (${memberCount.get(familyId) ?? 0} members)`]
+      : unique(list.map((e) => e.person_id)).sort().map(label);
+    receiving.push({
+      ...head, people,
+      peopleCount: scheme.scope === "family" ? (memberCount.get(familyId) ?? 0) : people.length,
+      monthlyAmount: list.reduce((t, e) => t + (e.monthly_amount ?? 0), 0),
+      started: bases.size > 1 ? "both" : bases.has("auto") ? "automatic" : "records",
+      rulesMet: "",
+    });
+  }
+
+  const pending: SchemeFamilyRow[] = [];
+  const pendingByFamily = new Map<string, EligibilityRow[]>();
+  for (const r of pendingResults) pendingByFamily.set(r.family_id, [...(pendingByFamily.get(r.family_id) ?? []), r]);
+  for (const [familyId, list] of pendingByFamily) {
+    const head = base(familyId);
+    if (!head) continue;
+    const people = scheme.scope === "family"
+      ? [`Whole family (${memberCount.get(familyId) ?? 0} members)`]
+      : list.flatMap((r) => (r.person_id ? [label(r.person_id)] : [])).sort();
+    const rules = list[0].reasons
+      .filter((r) => r.passed && !r.rule.startsWith("is_deceased"))
+      .map((r) => describeRule(r.rule, "en"));
+    pending.push({
+      ...head, people,
+      peopleCount: scheme.scope === "family" ? (memberCount.get(familyId) ?? 0) : people.length,
+      monthlyAmount: 0, started: null, rulesMet: rules.join("; "),
+    });
+  }
+
+  const byId = (a: SchemeFamilyRow, b: SchemeFamilyRow) => (a.familyId < b.familyId ? -1 : a.familyId > b.familyId ? 1 : 0);
+  return {
+    scheme: {
+      code: scheme.code, name: schemeName(scheme.code), scope: scheme.scope,
+      manualVerificationRequired: scheme.manualVerificationRequired || scheme.enrollment === "none",
+    },
+    receiving: receiving.sort(byId),
+    pending: pending.sort(byId),
+  };
+}
+
+/** First names for a set of person ids (officer screens show a first name, never a full ID). */
+export async function personFirstNames(personIds: readonly string[]): Promise<Map<string, string>> {
+  const people = await rowsIn<Pick<PersonRow, "id" | "canonical_name">>(
+    "persons", "id", unique(personIds), "id,canonical_name",
+  );
+  return new Map(people.map((p) => [p.id, firstName(p.canonical_name)]));
+}
+
+
+// ---- citizen view ------------------------------------------------------------------------
+
+export interface FamilySummary {
+  family: FamilyRow;
+  /** The family this Family ID was merged into, when it is a duplicate card */
+  mergedInto: FamilyRow | null;
+  members: { member: MemberRow; person: PersonRow }[];
+  enrollments: EnrollmentRow[];
+  eligibility: EligibilityRow[];
+}
+
+/** Everything the citizen page and the assistant need about a family, without match lineage. */
+export async function getFamilySummary(id: string): Promise<FamilySummary | null> {
+  const { data: family, error } = await db()
+    .from("families").select("*").eq("id", id).maybeSingle<FamilyRow>();
+  if (error) throw new Error(`Reading family failed: ${error.message}`);
+  if (!family) return null;
+
+  const [members, enrollments, eligibility, mergedInto] = await Promise.all([
+    rowsIn<MemberRow>("family_members", "family_id", [id]),
+    rowsIn<EnrollmentRow>("enrollments", "family_id", [id]),
+    rowsIn<EligibilityRow>("eligibility_results", "family_id", [id]),
+    family.merged_into
+      ? db().from("families").select("*").eq("id", family.merged_into).maybeSingle<FamilyRow>()
+      : Promise.resolve({ data: null, error: null }),
+  ]);
+  const persons = await rowsIn<PersonRow>("persons", "id", members.map((m) => m.person_id));
+  const personById = new Map(persons.map((p) => [p.id, p]));
+
+  return {
+    family,
+    mergedInto: mergedInto.data ?? null,
+    members: members
+      .flatMap((member) => {
+        const person = personById.get(member.person_id);
+        return person ? [{ member, person }] : [];
+      })
+      .sort(
+        (a, b) =>
+          RELATION_ORDER.indexOf(a.member.relation_to_head ?? "other") -
+            RELATION_ORDER.indexOf(b.member.relation_to_head ?? "other") || a.person.id.localeCompare(b.person.id),
+      ),
+    enrollments,
+    eligibility,
+  };
 }

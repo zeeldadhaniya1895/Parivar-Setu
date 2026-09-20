@@ -27,12 +27,14 @@ Source files:
 
 | Component | Location | Responsibility |
 |---|---|---|
-| Officer pages | `app/officer/*` | Dashboard, family detail with lineage and score breakdowns, flags, review queue, recording deaths |
+| Officer pages | `app/officer/*` | Dashboard, family detail with lineage and score breakdowns, flags, review queue, recording deaths, per-scheme family lists (`/officer/schemes`) and grievances |
 | Citizen pages | `app/citizen/*` | Family ID lookup, eligible schemes, assistant chat |
 | Pipeline route | `POST /api/pipeline/run` | Rebuilds all derived data from inputs |
 | Review route | `POST /api/review/[pairKey]` | Saves an officer's match decision, writes audit entry, reruns pipeline |
 | Death route | `POST /api/events/death` | Saves a death event (and spouse status change), writes audit entry, reruns pipeline |
 | Assistant route | `POST /api/assistant` | Loads family facts, strips identifying data, asks the LLM layer |
+| Grievance routes | `POST /api/grievances`, `POST /api/grievances/[id]/resolve` | A citizen files a question about a scheme; an officer answers it. Validated, deduplicated and audited on the server |
+| Reports route | `GET /api/reports?type=receiving|pending&scheme=CODE` | CSV of families receiving a scheme, or eligible and waiting for manual verification |
 | Pipeline | `lib/pipeline.ts` | Loads inputs, runs the engine in memory, persists results, records the run |
 | Domain engine | `lib/engine/*` | All decision logic (see Section 5.1) |
 | Scheme rules | `config/schemes.json` | Versioned eligibility rules as data |

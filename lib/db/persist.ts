@@ -84,6 +84,7 @@ export function toRows(result: EngineResult): Record<DerivedTable, Row[]> {
       family_id: e.familyId,
       scheme_code: e.schemeCode,
       source_record_id: e.sourceRecordId,
+      basis: e.basis,
       monthly_amount: e.monthlyAmount,
     })),
     eligibility_results: result.eligibility.map((r) => ({
