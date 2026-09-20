@@ -10,7 +10,8 @@ import { writeFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
 import { generateSeed } from "./seed/generate";
 
-config({ path: ".env.local" });
+// Same files Next.js reads; earlier paths win, so .env.local overrides .env.
+config({ path: [".env.local", ".env"], quiet: true });
 
 const BATCH_SIZE = 500;
 
