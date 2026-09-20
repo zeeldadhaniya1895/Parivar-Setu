@@ -1,5 +1,6 @@
 // Orchestrates one run: load inputs, run the pure engine in memory, persist, record the run.
 import schemesJson from "../config/schemes.json";
+import { resolveAsOfDate } from "./asof";
 import { loadInputs } from "./db/inputs";
 import { recordRun, replaceDerived } from "./db/persist";
 import { parseSchemesConfig } from "./engine/eligibility";
@@ -13,15 +14,6 @@ export interface PipelineSummary {
   asOfDate: string;
   durationMs: number;
   stats: EngineResult["stats"];
-}
-
-/** "Today" for age calculations: AS_OF_DATE when set, otherwise the current date. */
-export function resolveAsOfDate(env: string | undefined, now: Date): string {
-  if (env === undefined || env.trim() === "") return now.toISOString().slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(env.trim())) {
-    throw new Error(`AS_OF_DATE must look like 2026-09-20, got "${env}"`);
-  }
-  return env.trim();
 }
 
 // Concurrent requests (a double click) share one run instead of interleaving deletes and inserts.
