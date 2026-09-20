@@ -32,7 +32,7 @@ export interface FamilyRow {
   resolved_income: number | null;
   income_sources: { recordId: string; source: string; value: number }[];
   is_anchored: boolean;
-  status: "active" | "merged";
+  status: "active" | "merged" | "closed";
   merged_into: string | null;
   parent_family_id: string | null;
 }
@@ -53,6 +53,28 @@ export interface MemberRow {
   family_id: string;
   person_id: string;
   relation_to_head: string | null;
+  valid_from?: string | null;
+  valid_to?: string | null;
+  opened_by_event?: number | null;
+  closed_by_event?: number | null;
+}
+
+/** The officer change behind a membership starting or ending. */
+export interface ChangeNote {
+  eventId: number;
+  reason: string | null;
+  documentRef: string | null;
+  date: string | null;
+}
+
+export interface FormerMember {
+  personId: string;
+  name: string;
+  relation: string | null;
+  leftOn: string | null;
+  change: ChangeNote | null;
+  /** The family they are in now */
+  movedTo: string | null;
 }
 
 export interface EligibilityRow {
@@ -105,18 +127,20 @@ const RELATION_ORDER = ["head", "spouse", "mother", "father", "son", "daughter",
 /** Values that would break out of a PostgREST filter expression are removed. */
 const safeSearch = (q: string) => q.replace(/[%,()*\\]/g, " ").trim();
 
+/**
+ * Rows whose `column` is in `values`. `currentOnly` keeps only open memberships (no `valid_to`),
+ * which is what every "who is in this family" question wants: officers can move people out.
+ */
 async function rowsIn<Row>(
-  table: string, column: string, values: readonly string[], columns = "*",
+  table: string, column: string, values: readonly string[], columns = "*", currentOnly = false,
 ): Promise<Row[]> {
   if (values.length === 0) return [];
   const out: Row[] = [];
   // Keep request URLs short by chunking long id lists.
   for (let i = 0; i < values.length; i += 150) {
-    const { data, error } = await db()
-      .from(table)
-      .select(columns)
-      .in(column, values.slice(i, i + 150))
-      .returns<Row[]>();
+    let query = db().from(table).select(columns).in(column, values.slice(i, i + 150));
+    if (currentOnly) query = query.is("valid_to", null);
+    const { data, error } = await query.returns<Row[]>();
     if (error) throw new Error(`Reading ${table} failed: ${error.message}`);
     out.push(...data);
   }
@@ -162,7 +186,7 @@ export async function listFamilies(
       .returns<{ id: string }[]>();
     if (people.error) throw new Error(`Searching persons failed: ${people.error.message}`);
     const members = await rowsIn<{ family_id: string }>(
-      "family_members", "person_id", people.data.map((p) => p.id), "family_id",
+      "family_members", "person_id", people.data.map((p) => p.id), "family_id", true,
     );
     const familyIds = unique(members.map((m) => m.family_id));
     const filters = [`id.ilike.%${q}%`, `village.ilike.%${q}%`, `taluka.ilike.%${q}%`, `district.ilike.%${q}%`];
@@ -181,7 +205,7 @@ export async function listFamilies(
   const headIds = data.map((f) => f.head_person_id).filter((id): id is string => id !== null);
   const [heads, members, flags] = await Promise.all([
     rowsIn<PersonRow>("persons", "id", headIds, "id,canonical_name"),
-    rowsIn<MemberRow>("family_members", "family_id", ids, "family_id,person_id"),
+    rowsIn<MemberRow>("family_members", "family_id", ids, "family_id,person_id", true),
     rowsIn<FlagRow>("anomaly_flags", "family_id", ids, "id,family_id"),
   ]);
   const headName = new Map(heads.map((p) => [p.id, p.canonical_name]));
@@ -219,6 +243,8 @@ export interface MemberDetail {
   member: MemberRow;
   person: PersonRow;
   lineage: PersonLineage;
+  /** Set when this person joined the family through an officer change */
+  joined: ChangeNote | null;
 }
 
 export interface FamilyDetail {
@@ -227,6 +253,8 @@ export interface FamilyDetail {
   mergedInto: FamilyRow | null;
   mergedFrom: FamilyRow[];
   members: MemberDetail[];
+  /** People an officer moved out of this family */
+  former: FormerMember[];
   enrollments: EnrollmentRow[];
   eligibility: EligibilityRow[];
   flags: FlagRow[];
@@ -303,7 +331,7 @@ export async function getFamilyDetail(id: string): Promise<FamilyDetail | null> 
   if (!family) return null;
 
   const [members, enrollments, eligibility, flags, mergedFromResult, mergedIntoResult] = await Promise.all([
-    rowsIn<MemberRow>("family_members", "family_id", [id]),
+    rowsIn<MemberRow>("family_members", "family_id", [id], "*", true),
     rowsIn<EnrollmentRow>("enrollments", "family_id", [id]),
     rowsIn<EligibilityRow>("eligibility_results", "family_id", [id]),
     rowsIn<FlagRow>("anomaly_flags", "family_id", [id]),
@@ -313,15 +341,55 @@ export async function getFamilyDetail(id: string): Promise<FamilyDetail | null> 
       : Promise.resolve({ data: null, error: null }),
   ]);
 
-  const persons = await rowsIn<PersonRow>("persons", "id", members.map((m) => m.person_id));
+  // People an officer moved out of this family, and the changes behind every move in or out.
+  const formerResult = await db()
+    .from("family_members").select("*").eq("family_id", id).not("valid_to", "is", null)
+    .returns<MemberRow[]>();
+  if (formerResult.error) throw new Error(`Reading membership history failed: ${formerResult.error.message}`);
+  const formerRows = formerResult.data;
+
+  const persons = await rowsIn<PersonRow>(
+    "persons", "id", unique([...members, ...formerRows].map((m) => m.person_id)),
+  );
   const personById = new Map(persons.map((p) => [p.id, p]));
-  const lineage = await buildLineage(persons);
+  const lineage = await buildLineage(persons.filter((p) => members.some((m) => m.person_id === p.id)));
+
+  const eventIds = unique(
+    [...members.map((m) => m.opened_by_event), ...formerRows.map((m) => m.closed_by_event)]
+      .filter((e): e is number => typeof e === "number")
+      .map(String),
+  );
+  const eventRows = await rowsIn<{ id: number; reason: string | null; document_ref: string | null; payload: { effectiveDate?: string } }>(
+    "family_events", "id", eventIds, "id,reason,document_ref,payload",
+  );
+  const noteOf = (eventId: number | null | undefined, date: string | null | undefined): ChangeNote | null => {
+    const event = typeof eventId === "number" ? eventRows.find((e) => e.id === eventId) : undefined;
+    return event
+      ? { eventId: event.id, reason: event.reason, documentRef: event.document_ref, date: date ?? event.payload?.effectiveDate ?? null }
+      : null;
+  };
+
+  const nowIn = await rowsIn<MemberRow>(
+    "family_members", "person_id", unique(formerRows.map((m) => m.person_id)), "family_id,person_id", true,
+  );
+  const former: FormerMember[] = formerRows
+    .map((m) => ({
+      personId: m.person_id,
+      name: personById.get(m.person_id)?.canonical_name ?? m.person_id,
+      relation: m.relation_to_head,
+      leftOn: m.valid_to ?? null,
+      change: noteOf(m.closed_by_event, m.valid_to),
+      movedTo: nowIn.find((n) => n.person_id === m.person_id)?.family_id ?? null,
+    }))
+    .sort((a, b) => (b.leftOn ?? "").localeCompare(a.leftOn ?? "") || a.personId.localeCompare(b.personId));
 
   const details: MemberDetail[] = members
     .flatMap((m) => {
       const person = personById.get(m.person_id);
       const memberLineage = lineage.get(m.person_id);
-      return person && memberLineage ? [{ member: m, person, lineage: memberLineage }] : [];
+      return person && memberLineage
+        ? [{ member: m, person, lineage: memberLineage, joined: noteOf(m.opened_by_event, m.valid_from) }]
+        : [];
     })
     .sort(
       (a, b) =>
@@ -336,6 +404,7 @@ export async function getFamilyDetail(id: string): Promise<FamilyDetail | null> 
     mergedInto: mergedIntoResult.data ?? null,
     mergedFrom: mergedFromResult.data ?? [],
     members: details,
+    former,
     enrollments,
     eligibility,
     flags,
@@ -433,7 +502,7 @@ export async function schemeFamilyLists(code: string): Promise<SchemeFamilyLists
   const familyIds = unique([...enrollments.map((e) => e.family_id), ...pendingResults.map((r) => r.family_id)]);
   const [families, members] = await Promise.all([
     rowsIn<FamilyRow>("families", "id", familyIds),
-    rowsIn<MemberRow>("family_members", "family_id", familyIds),
+    rowsIn<MemberRow>("family_members", "family_id", familyIds, "*", true),
   ]);
   const persons = await rowsIn<PersonRow>(
     "persons", "id", unique([...members.map((m) => m.person_id), ...families.flatMap((f) => (f.head_person_id ? [f.head_person_id] : []))]),
@@ -537,7 +606,7 @@ export async function getFamilySummary(id: string): Promise<FamilySummary | null
   if (!family) return null;
 
   const [members, enrollments, eligibility, mergedInto] = await Promise.all([
-    rowsIn<MemberRow>("family_members", "family_id", [id]),
+    rowsIn<MemberRow>("family_members", "family_id", [id], "*", true),
     rowsIn<EnrollmentRow>("enrollments", "family_id", [id]),
     rowsIn<EligibilityRow>("eligibility_results", "family_id", [id]),
     family.merged_into

@@ -11,7 +11,7 @@ import type {
 const MAX_DOB_YEAR_GAP = 5;
 const CARD_MERGE_RATIO = 0.5;
 const SOURCE_PRIORITY: Record<SourceName, number> = {
-  ration: 0, pension: 1, scholarship: 2, death_registry: 3,
+  ration: 0, pension: 1, scholarship: 2, death_registry: 3, officer_entry: 4,
 };
 
 const pad = (n: number, width = 6) => String(n).padStart(width, "0");
@@ -375,7 +375,7 @@ export function resolve(
       familyMembers.push({
         familyId, personId: pid,
         relationToHead: pid === headPersonId ? "head" : (relationRecord(pid)?.relation ?? null),
-        validFrom: null, validTo: null,
+        validFrom: null, validTo: null, openedByEvent: null, closedByEvent: null,
       });
     }
   }
@@ -403,6 +403,7 @@ export function resolve(
     familyIdByPerson.set(person.id, familyId);
     familyMembers.push({
       familyId, personId: person.id, relationToHead: "head", validFrom: null, validTo: null,
+      openedByEvent: null, closedByEvent: null,
     });
   }
 

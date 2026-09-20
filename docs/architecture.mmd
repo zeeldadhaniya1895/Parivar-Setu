@@ -1,61 +1,80 @@
-%% Parivar Setu - system architecture (v1, from DESIGN.md)
-%% Render: npx @mermaid-js/mermaid-cli -i architecture.mmd -o architecture-mermaid.png
+%% Parivar Setu - system architecture (final version)
+%% Render to PNG: npx @mermaid-js/mermaid-cli -i architecture.mmd -o architecture.png -w 2400 -b white
+%% Or paste this whole file into any Mermaid renderer (mermaid.live, or Claude chat) and export as PNG.
 flowchart TB
-  subgraph USERS["Users (browser)"]
-    OFF["Officer UI<br/>dashboard, families, flags, review queue"]
-    CIT["Citizen UI<br/>Family ID lookup, assistant"]
+  subgraph USERS["Users (browser, demo role toggle in a cookie, no sign-in)"]
+    OFF["Officer<br/>dashboard, families, flags, schemes and CSV,<br/>review queue, grievances, family changes"]
+    CIT["Citizen<br/>Family ID lookup, benefit status,<br/>ask an officer, assistant"]
   end
 
-  subgraph VERCEL["Vercel: Next.js App Router"]
+  subgraph VERCEL["Vercel: Next.js App Router (server components + route handlers)"]
     direction TB
 
     subgraph PRES["Presentation layer"]
-      PAGES["Server components<br/>/officer/* and /citizen/*"]
+      PAGES["Server components<br/>/officer/* and /citizen/*<br/>read through lib/db only"]
     end
 
-    subgraph API["API layer (route handlers)"]
+    subgraph API["API layer (route handlers, writes only)"]
+      direction LR
       R1["POST /api/pipeline/run"]
       R2["POST /api/review/[pairKey]"]
       R3["POST /api/events/death"]
-      R4["POST /api/assistant"]
+      R4["POST /api/family-changes/member<br/>POST /api/family-changes/move<br/>GET /api/families/lookup<br/>(officer role only)"]
+      R5["POST /api/grievances<br/>POST /api/grievances/[id]/resolve"]
+      R6["GET /api/reports<br/>CSV per scheme"]
+      R7["POST /api/assistant"]
     end
 
     subgraph APP["Application layer"]
-      PIPE["lib/pipeline.ts<br/>orchestrator"]
-      DBL["lib/db<br/>server-only queries"]
+      direction TB
+      PIPE["lib/pipeline.ts<br/>load inputs, run engine, persist,<br/>one run at a time, rerun after a saved change"]
+      VAL["Validators (pure)<br/>lib/family-changes, lib/grievances"]
+      DBL["lib/db<br/>server-only queries and writes<br/>service role key never in the browser"]
+      REP["lib/reports.ts<br/>CSV builder"]
       LLM["lib/llm<br/>LLMProvider interface"]
-      GEM["Gemini adapter<br/>timeout + 1 retry"]
+      GEM["Gemini adapter<br/>8 s timeout, 1 retry"]
       FB["Fallback templates<br/>Gujarati and English"]
     end
 
-    subgraph ENGINE["Domain engine (pure TypeScript, no I/O)"]
-      direction LR
-      N["normalize"] --> M["match"] --> RS["resolve"] --> AN["anomalies"] --> EL["eligibility"] --> EV["evaluate"]
-      CFG[("config/schemes.json")]
+    subgraph ENGINE["Domain engine: pure TypeScript, no I/O, no clock, deterministic"]
+      direction TB
+      N["normalize<br/>names, phonetic key, DOB"] --> M["match<br/>block, score, hard rules"]
+      M --> RS["resolve<br/>cluster + chaining guard,<br/>persons, families"]
+      RS --> FC["family-changes<br/>officer moves, adds, new families"]
+      FC --> EN["enrollments<br/>from records + automatic grants"]
+      EN --> AN["anomalies<br/>5 flag types, evidence,<br/>leakage estimate"]
+      AN --> EL["eligibility<br/>rules from config, reasons,<br/>gap analysis"]
+      EL --> EV["evaluate<br/>precision, recall, F1, run stats"]
+      CFG[("config/schemes.json<br/>rules, manual verification,<br/>demo monthly benefit")]
     end
   end
 
-  subgraph SUPA["Supabase Postgres (RLS on, no anon access)"]
-    subgraph INPUTS["Inputs: never truncated"]
-      SR[("source_records")]
+  subgraph SUPA["Supabase Postgres (row level security on, no anon access)"]
+    subgraph INPUTS["Inputs: never truncated, append-only history"]
+      SR[("source_records<br/>ration, pension, scholarship,<br/>death registry, officer entry")]
       RD[("review_decisions")]
-      FE[("family_events")]
+      FE[("family_events<br/>death, marital status, member add,<br/>family move + unique document ref")]
+      GR[("grievances<br/>question, system snapshot, answer")]
       AL[("audit_log<br/>append-only trigger")]
     end
     subgraph DERIVED["Derived: rebuilt on every run"]
-      DT[("persons, families, family_members,<br/>match_candidates, enrollments,<br/>eligibility_results, anomaly_flags,<br/>pipeline_runs")]
+      DT[("persons, families, family_members<br/>(with membership history),<br/>match_candidates, enrollments<br/>(record or auto), eligibility_results,<br/>anomaly_flags, pipeline_runs")]
     end
   end
 
   GAPI["Gemini API<br/>free tier Flash"]
-  SEED["scripts/seed.ts<br/>deterministic generator"]
+  SEED["scripts/seed.ts<br/>deterministic synthetic data<br/>with ground truth"]
 
   OFF --> PAGES
   CIT --> PAGES
   OFF --> R1
   OFF --> R2
   OFF --> R3
-  CIT --> R4
+  OFF --> R4
+  OFF --> R5
+  OFF --> R6
+  CIT --> R5
+  CIT --> R7
 
   PAGES --> DBL
   R1 --> PIPE
@@ -63,19 +82,31 @@ flowchart TB
   R2 --> PIPE
   R3 --> DBL
   R3 --> PIPE
+  R4 --> VAL
   R4 --> DBL
-  R4 --> LLM
+  R4 --> PIPE
+  R5 --> VAL
+  R5 --> DBL
+  R6 --> DBL
+  R6 --> REP
+  R7 --> DBL
+  R7 --> LLM
 
   PIPE --> ENGINE
+  CFG -.-> EN
   CFG -.-> EL
   PIPE --> DBL
   LLM --> GEM
   LLM --> FB
-  GEM -- "derived facts only" --> GAPI
+  GEM -- "derived facts only,<br/>no names or IDs" --> GAPI
 
-  DBL --> SUPA
+  DBL -- "reads inputs,<br/>writes inputs + audit" --> INPUTS
+  DBL -- "wipe and rebuild<br/>in batches of 500" --> DERIVED
   SEED --> SR
 
+  style PRES fill:#f5f7fb,stroke:#8a9bb5
+  style API fill:#f5f7fb,stroke:#8a9bb5
+  style APP fill:#f5f7fb,stroke:#8a9bb5
   style ENGINE fill:#eef3fa,stroke:#16365c
   style INPUTS fill:#fffaf0,stroke:#b8860b
   style DERIVED fill:#f4f9f6,stroke:#3d7a5a
@@ -86,7 +117,7 @@ flowchart TB
   classDef input fill:#fff4d6,stroke:#b8860b,color:#3a2a00
   classDef derived fill:#e8f1ec,stroke:#3d7a5a,color:#12301f
   classDef external fill:#f3eef8,stroke:#6b4f8f,color:#2a1a40
-  class N,M,RS,AN,EL,EV engine
-  class SR,RD,FE,AL input
+  class N,M,RS,FC,EN,AN,EL,EV engine
+  class SR,RD,FE,GR,AL input
   class DT derived
   class GAPI,SEED external

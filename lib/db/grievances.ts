@@ -44,7 +44,7 @@ export async function fileGrievance(raw: Record<string, unknown>): Promise<Filed
 
   if (input.personId) {
     const member = await client
-      .from("family_members").select("person_id").eq("family_id", input.familyId).eq("person_id", input.personId).maybeSingle();
+      .from("family_members").select("person_id").eq("family_id", input.familyId).eq("person_id", input.personId).is("valid_to", null).maybeSingle();
     if (member.error) throw new Error(member.error.message);
     if (!member.data) throw new GrievanceError("That person is not in this family", 400);
   }

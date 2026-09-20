@@ -51,7 +51,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ pai
 
   // 3. Rerun pipeline
   try {
-    const stats = await runPipeline("Officer");
+    const stats = await runPipeline("Officer", { afterChange: true });
     return Response.json({ success: true, stats });
   } catch (error) {
     console.error("Failed to run pipeline:", error);

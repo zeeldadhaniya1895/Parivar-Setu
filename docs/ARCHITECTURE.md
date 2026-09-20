@@ -33,6 +33,7 @@ Source files:
 | Review route | `POST /api/review/[pairKey]` | Saves an officer's match decision, writes audit entry, reruns pipeline |
 | Death route | `POST /api/events/death` | Saves a death event (and spouse status change), writes audit entry, reruns pipeline |
 | Assistant route | `POST /api/assistant` | Loads family facts, strips identifying data, asks the LLM layer |
+| Family change routes | `POST /api/family-changes/member`, `POST /api/family-changes/move`, `GET /api/families/lookup` | An officer adds a member, separates members into a new family, or moves them into an existing one. Officer role, validated, document reference unique, audited; the pipeline reruns and the engine applies the change (`lib/engine/family-changes.ts`) |
 | Grievance routes | `POST /api/grievances`, `POST /api/grievances/[id]/resolve` | A citizen files a question about a scheme; an officer answers it. Validated, deduplicated and audited on the server |
 | Reports route | `GET /api/reports?type=receiving|pending&scheme=CODE` | CSV of families receiving a scheme, or eligible and waiting for manual verification |
 | Pipeline | `lib/pipeline.ts` | Loads inputs, runs the engine in memory, persists results, records the run |

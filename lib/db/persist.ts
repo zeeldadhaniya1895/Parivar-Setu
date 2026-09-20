@@ -72,12 +72,15 @@ export function toRows(result: EngineResult): Record<DerivedTable, Row[]> {
       merged_into: f.mergedInto,
       parent_family_id: f.parentFamilyId,
     })),
-    family_members: result.familyMembers.map((m) => ({
+    // Current memberships first, then the ones an officer ended (kept as history).
+    family_members: [...result.familyMembers, ...result.memberHistory].map((m) => ({
       family_id: m.familyId,
       person_id: m.personId,
       relation_to_head: m.relationToHead,
       valid_from: m.validFrom,
       valid_to: m.validTo,
+      opened_by_event: m.openedByEvent,
+      closed_by_event: m.closedByEvent,
     })),
     enrollments: result.enrollments.map((e) => ({
       person_id: e.personId,

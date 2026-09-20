@@ -51,5 +51,5 @@ export const FLAG_LABELS: Record<string, string> = {
 };
 
 export const SOURCE_LABELS: Record<string, string> = {
-  ration: "Ration", pension: "Pension", scholarship: "Scholarship", death_registry: "Death registry",
+  ration: "Ration", pension: "Pension", scholarship: "Scholarship", death_registry: "Death registry", officer_entry: "Officer entry",
 };

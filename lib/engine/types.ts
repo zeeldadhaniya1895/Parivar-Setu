@@ -7,7 +7,7 @@ export type Relation =
   | "head" | "spouse" | "son" | "daughter" | "son_in_law" | "daughter_in_law"
   | "grandson" | "granddaughter" | "father" | "mother" | "other";
 export type Marital = "married" | "unmarried" | "widowed";
-export type SourceName = "ration" | "pension" | "scholarship" | "death_registry";
+export type SourceName = "ration" | "pension" | "scholarship" | "death_registry" | "officer_entry";
 export type SchemeCode = "OLD_AGE_PENSION" | "WIDOW_ASSIST" | "SCHOLARSHIP";
 
 export interface SourceRecord {
@@ -132,6 +132,45 @@ export interface FamilyEvent {
   newMaritalStatus: Marital | null;
 }
 
+/**
+ * How an officer's change points at a family so it still works after every rebuild. Derived
+ * Family IDs can move, so anchored families are named by ration card, others by one member's
+ * source record, and families an officer created by their (stable) ID.
+ */
+export type FamilyRef = { cardRef: string } | { recordId: string } | { manual: string };
+
+/** A new member entered by an officer (as a source record) and placed in a family. */
+export interface MemberAddChange {
+  kind: "member_add";
+  eventId: number;
+  /** The officer-entered source record (USR-...) for the new person */
+  recordId: string;
+  to: FamilyRef;
+  relation: Relation;
+  effectiveDate: string | null;
+}
+
+/** Members leave their family, for a new family or an existing one. */
+export interface FamilyMoveChange {
+  kind: "family_move";
+  eventId: number;
+  effectiveDate: string;
+  members: { recordId: string; relation: Relation }[];
+  to:
+    | { kind: "existing"; family: FamilyRef }
+    | {
+        kind: "new";
+        headRecordId: string;
+        district: string;
+        taluka: string;
+        village: string;
+        /** The new household's own annual income in rupees */
+        income: number;
+      };
+}
+
+export type FamilyChange = MemberAddChange | FamilyMoveChange;
+
 export interface Person {
   id: string;
   anchorRecordId: string;
@@ -161,7 +200,8 @@ export interface Family {
   resolvedIncome: number | null;
   incomeSources: IncomeSource[];
   isAnchored: boolean;
-  status: "active" | "merged";
+  /** `closed`: everyone left (or the placeholder for a person an officer moved). */
+  status: "active" | "merged" | "closed";
   mergedInto: string | null;
   parentFamilyId: string | null;
   /** Ration cards this family was built from (empty when unanchored) */
@@ -174,6 +214,9 @@ export interface FamilyMember {
   relationToHead: Relation | null;
   validFrom: string | null;
   validTo: string | null;
+  /** The officer change that made this membership start or end, when there was one */
+  openedByEvent: number | null;
+  closedByEvent: number | null;
 }
 
 /** A ration card folded into another because they list mostly the same people. */

@@ -61,7 +61,9 @@ cp .env.example .env.local      # then fill in the values
 2. Open the Supabase **SQL editor**, paste the contents of
    [`supabase/migrations/0001_init.sql`](supabase/migrations/0001_init.sql) and run it.
 3. Then run [`supabase/migrations/0002_grievances.sql`](supabase/migrations/0002_grievances.sql) the same way
-   (grievances table, and the `basis` column on enrollments for automatic benefits).
+   (grievances table, and the `basis` column on enrollments for automatic benefits), and
+   [`supabase/migrations/0003_family_changes.sql`](supabase/migrations/0003_family_changes.sql)
+   (officer family changes).
 
 ### Seed data
 
@@ -117,6 +119,12 @@ npm run dev             # start locally at http://localhost:3000
 | `PMJAY_MA` | PMJAY-MA health cover | Family | Income ≤ ₹5,00,000 | Manual verification |
 
 All thresholds are simplified demo values, not official criteria.
+
+## Family changes (officers)
+
+On a family's page an officer can **add a member**, **separate members into a new family** (they leave the old family and a new Family ID such as `GJ-FID-M000012` is created), or **move members into an existing family** (for example after a marriage). Each change needs a reason and a supporting document reference (one document can authorise one change only), and is audited. Changes are stored as inputs and re-applied on every run, so they survive rebuilds; the old family keeps a "Former members" history. Benefits and eligibility follow the new household's own income.
+
+> Run `supabase/migrations/0003_family_changes.sql` after 0001 and 0002, then `npm run pipeline`.
 
 ## Benefits, manual verification and grievances
 

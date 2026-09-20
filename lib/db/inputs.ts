@@ -1,5 +1,6 @@
 // Read the input tables: source records, review decisions (and, from P8, family events).
-import type { FamilyEvent, Marital, ReviewDecision, SourceRecord } from "../engine/types";
+import type { FamilyChange, FamilyEvent, Marital, ReviewDecision, SourceRecord } from "../engine/types";
+import { parseFamilyChange } from "../family-changes";
 import { fetchAll } from "./client";
 
 interface SourceRecordRow extends SourceRecord {
@@ -12,7 +13,8 @@ interface ReviewDecisionRow {
 }
 
 interface FamilyEventRow {
-  type: "death" | "marital_status_change";
+  id: number;
+  type: string;
   subject_record_id: string;
   payload: {
     date_of_death?: string | null;
@@ -26,13 +28,15 @@ export interface PipelineInputs {
   truth: Map<string, string>;
   decisions: ReviewDecision[];
   events: FamilyEvent[];
+  /** Officer changes to families (new members, separations, moves), in the order they were made */
+  familyChanges: FamilyChange[];
 }
 
 export async function loadInputs(): Promise<PipelineInputs> {
   const [rows, decisionRows, eventRows] = await Promise.all([
     fetchAll<SourceRecordRow>("source_records", "id"),
     fetchAll<ReviewDecisionRow>("review_decisions", "pair_key"),
-    fetchAll<FamilyEventRow>("family_events", "subject_record_id"),
+    fetchAll<FamilyEventRow>("family_events", "id"),
   ]);
   const truth = new Map<string, string>();
   const records = rows.map(({ true_person_id, ...record }) => {
@@ -43,11 +47,17 @@ export async function loadInputs(): Promise<PipelineInputs> {
     records,
     truth,
     decisions: decisionRows.map((d) => ({ pairKey: d.pair_key, decision: d.decision })),
-    events: eventRows.map((e) => ({
-      type: e.type,
-      subjectRecordId: e.subject_record_id,
-      date: e.payload?.date_of_death || null,
-      newMaritalStatus: (e.payload?.marital_status as Marital) || null,
-    })),
+    events: eventRows
+      .filter((e) => e.type === "death" || e.type === "marital_status_change")
+      .map((e) => ({
+        type: e.type as FamilyEvent["type"],
+        subjectRecordId: e.subject_record_id,
+        date: e.payload?.date_of_death || null,
+        newMaritalStatus: (e.payload?.marital_status as Marital) || null,
+      })),
+    familyChanges: eventRows.flatMap((e) => {
+      const change = parseFamilyChange(e);
+      return change ? [change] : [];
+    }),
   };
 }

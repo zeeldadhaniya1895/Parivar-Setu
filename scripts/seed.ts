@@ -57,7 +57,7 @@ async function main() {
   }
   const supabase = createClient(url, key, { auth: { persistSession: false } });
 
-  const { error: deleteError } = await supabase.from("source_records").delete().neq("id", "");
+  const { error: deleteError } = await supabase.from("source_records").delete().neq("source", "officer_entry");
   if (deleteError) throw new Error(`Clearing source_records failed: ${deleteError.message}`);
 
   for (let i = 0; i < seed.records.length; i += BATCH_SIZE) {

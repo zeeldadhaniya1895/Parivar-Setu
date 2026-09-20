@@ -152,7 +152,7 @@ describe("evaluateEligibility", () => {
     isAnchored: true, status: "active", mergedInto: null, parentFamilyId: null, cardRefs: [], ...o,
   });
   const member = (familyId: string, personId: string): FamilyMember => ({
-    familyId, personId, relationToHead: null, validFrom: null, validTo: null,
+    familyId, personId, relationToHead: null, validFrom: null, validTo: null, openedByEvent: null, closedByEvent: null,
   });
   const run = (persons: Person[], families: Family[], members: FamilyMember[], students: [string, boolean][] = []) =>
     evaluateEligibility({

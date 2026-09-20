@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { DemoNotice } from "@/components/demo-notice";
+import { AddMemberDialog, SeparateMembersDialog } from "@/components/family-change-dialogs";
 import { Evidence } from "@/components/evidence";
 import { RecordCard } from "@/components/record-card";
 import { RecordDeathDialog } from "@/components/record-death-dialog";
@@ -47,7 +48,7 @@ export default async function FamilyPage({ params }: { params: Promise<{ id: str
   const detail = await getFamilyDetail(id);
   if (!detail) notFound();
 
-  const { family, members, enrollments, eligibility, flags } = detail;
+  const { family, members, former, enrollments, eligibility, flags } = detail;
   const asOf = currentAsOfDate();
   const nameOf = new Map(members.map((m) => [m.person.id, m.person.canonical_name]));
   const enrolledKeys = new Set(
@@ -88,12 +89,28 @@ export default async function FamilyPage({ params }: { params: Promise<{ id: str
             {family.is_anchored ? "Built from a ration card" : "No ration card"}
           </Badge>
           {family.status === "merged" && <Badge variant="destructive">Merged</Badge>}
+          {family.status === "closed" && <Badge variant="destructive">Closed</Badge>}
         </div>
         <p className="mt-1 text-muted-foreground">
           {detail.headName ? `Head: ${detail.headName} · ` : ""}
           {family.village}, {family.taluka}, {family.district}
         </p>
+        {family.parent_family_id && (
+          <p className="text-sm text-muted-foreground">
+            Split from{" "}
+            <Link className="font-mono underline" href={`/officer/families/${family.parent_family_id}`}>{family.parent_family_id}</Link>
+          </p>
+        )}
       </div>
+
+      {family.status === "closed" && (
+        <Alert>
+          <AlertTitle>This family is closed</AlertTitle>
+          <AlertDescription>
+            Everyone who lived here was moved to another family by an officer. Its history is kept below.
+          </AlertDescription>
+        </Alert>
+      )}
 
       {family.status === "merged" && detail.mergedInto && (
         <Alert>
@@ -168,7 +185,26 @@ export default async function FamilyPage({ params }: { params: Promise<{ id: str
       )}
 
       <section className="space-y-4">
-        <h2 className="text-xl font-bold tracking-tight">Members <span className="text-base font-normal text-muted-foreground ml-1">(સભ્યો)</span></h2>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-xl font-bold tracking-tight">Members <span className="text-base font-normal text-muted-foreground ml-1">(સભ્યો)</span></h2>
+          {family.status === "active" && (
+            <div className="flex flex-wrap gap-2">
+              <AddMemberDialog familyId={family.id} today={asOf} />
+              <SeparateMembersDialog
+                familyId={family.id}
+                today={asOf}
+                place={{ village: family.village, taluka: family.taluka, district: family.district }}
+                members={members.map(({ member, person }) => ({
+                  personId: person.id,
+                  name: person.canonical_name,
+                  relation: member.relation_to_head,
+                  age: ageFromDob(person.dob, asOf),
+                  isDeceased: person.is_deceased,
+                }))}
+              />
+            </div>
+          )}
+        </div>
         <div className="overflow-hidden rounded-xl border shadow-sm">
           <Table>
             <TableHeader className="bg-muted/30">
@@ -184,12 +220,19 @@ export default async function FamilyPage({ params }: { params: Promise<{ id: str
               </TableRow>
             </TableHeader>
             <TableBody>
-              {members.map(({ member, person, lineage }) => (
+              {members.map(({ member, person, lineage, joined }) => (
                 <TableRow key={person.id} className="transition-colors hover:bg-muted/50 group">
                   <TableCell>
                     <span className="font-medium group-hover:text-primary transition-colors">{person.canonical_name}</span>{" "}
                     <span className="font-mono text-xs text-muted-foreground">{person.id}</span>
                     {person.is_deceased && <Badge variant="destructive" className="ml-2">Deceased {person.deceased_on ?? ""}</Badge>}
+                    {joined && (
+                      <span className="mt-0.5 block text-xs text-muted-foreground">
+                        Joined {joined.date ? displayDob(joined.date) : "by an officer change"}
+                        {joined.reason ? ` · ${joined.reason}` : ""}
+                        {joined.documentRef ? ` · document ${joined.documentRef}` : ""}
+                      </span>
+                    )}
                   </TableCell>
                   <TableCell>{member.relation_to_head ? (RELATION_LABELS[member.relation_to_head] ?? member.relation_to_head) : "—"}</TableCell>
                   <TableCell>{displayDob(person.dob)}</TableCell>
@@ -212,6 +255,45 @@ export default async function FamilyPage({ params }: { params: Promise<{ id: str
           </Table>
         </div>
       </section>
+
+      {former.length > 0 && (
+        <section className="space-y-3">
+          <div>
+            <h2 className="text-lg font-semibold">Former members</h2>
+            <p className="text-sm text-muted-foreground">People an officer moved out of this family, with the document that authorised it.</p>
+          </div>
+          <div className="overflow-x-auto rounded-lg border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Was</TableHead>
+                  <TableHead>Left on</TableHead>
+                  <TableHead>Reason and document</TableHead>
+                  <TableHead>Now in</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {former.map((m, i) => (
+                  <TableRow key={`${m.personId}-${i}`}>
+                    <TableCell className="font-medium">{m.name}</TableCell>
+                    <TableCell>{m.relation ? (RELATION_LABELS[m.relation] ?? m.relation) : "\u2014"}</TableCell>
+                    <TableCell>{m.leftOn ? displayDob(m.leftOn) : "\u2014"}</TableCell>
+                    <TableCell className="text-sm">
+                      {m.change ? `${m.change.reason ?? "change"} · ${m.change.documentRef ?? "no document"}` : "\u2014"}
+                    </TableCell>
+                    <TableCell>
+                      {m.movedTo ? (
+                        <Link href={`/officer/families/${m.movedTo}`} className="font-mono text-primary underline-offset-4 hover:underline">{m.movedTo}</Link>
+                      ) : "\u2014"}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </section>
+      )}
 
       <section className="space-y-3">
         <div>

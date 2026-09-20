@@ -12,7 +12,7 @@ export const KNOWN_SURNAMES: ReadonlySet<string> = new Set([
 ]);
 
 const TITLES: ReadonlySet<string> = new Set([
-  "shri", "shree", "smt", "shrimati", "kum", "kumari", "mr", "mrs", "ms", "kumar", "dr",
+  "shri", "shree", "smt", "shrimati", "kum", "kumari", "mr", "mrs", "mr.", "mrs.", "ms.", "ms", "kumar", "dr",
 ]);
 
 const LATE_MARKERS: ReadonlySet<string> = new Set(["late", "swargiya", "sw"]);

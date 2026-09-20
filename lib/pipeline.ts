@@ -18,13 +18,30 @@ export interface PipelineSummary {
 
 // Concurrent requests (a double click) share one run instead of interleaving deletes and inserts.
 let inFlight: Promise<PipelineSummary> | null = null;
+let queued: Promise<PipelineSummary> | null = null;
 
-export function runPipeline(actor = "system"): Promise<PipelineSummary> {
-  if (inFlight) return inFlight;
-  inFlight = execute(actor).finally(() => {
-    inFlight = null;
-  });
-  return inFlight;
+/**
+ * Run the pipeline. A request that has just saved something (a decision, an event, a family change)
+ * passes `afterChange`: a run already under way may have read its inputs before that save, so one
+ * more run is queued behind it instead of joining it.
+ */
+export function runPipeline(actor = "system", options: { afterChange?: boolean } = {}): Promise<PipelineSummary> {
+  if (inFlight === null) {
+    inFlight = execute(actor).finally(() => {
+      inFlight = null;
+    });
+    return inFlight;
+  }
+  if (!options.afterChange) return inFlight;
+  if (queued === null) {
+    queued = inFlight
+      .catch(() => undefined)
+      .then(() => {
+        queued = null;
+        return runPipeline(actor, options);
+      });
+  }
+  return queued;
 }
 
 async function execute(actor: string): Promise<PipelineSummary> {
@@ -36,6 +53,7 @@ async function execute(actor: string): Promise<PipelineSummary> {
     records: inputs.records,
     decisions: inputs.decisions,
     events: inputs.events,
+    familyChanges: inputs.familyChanges,
     asOfDate,
     config,
     truth: inputs.truth,

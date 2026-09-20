@@ -107,7 +107,7 @@ export async function POST(request: Request) {
 
   // 4. Rerun pipeline
   try {
-    const stats = await runPipeline("Officer");
+    const stats = await runPipeline("Officer", { afterChange: true });
     return Response.json({ success: true, stats });
   } catch (error) {
     console.error("Failed to run pipeline:", error);

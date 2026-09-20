@@ -41,7 +41,7 @@ Role is chosen with a toggle stored in a cookie. There is no authentication; the
 
 **In scope:** everything in the build plan (Section 10), P1 to P12.
 
-**Out of scope (future work, mention in README):** real Aadhaar or eKYC, OCR on documents, real authentication, maker-checker approval UI, document hash fraud check, family split and member transfer UI, SMS notifications, Gujarati script transliteration of source data, integration with real department systems.
+**Out of scope (future work, mention in README):** real Aadhaar or eKYC, OCR on documents, real authentication, maker-checker approval UI, document hash fraud check, SMS notifications, Gujarati script transliteration of source data, integration with real department systems.
 
 ## 4. Tech stack
 
@@ -117,7 +117,7 @@ Enable Row Level Security on every table with no policies, so the anon key can r
 ```
 source_records
   id                text pk        -- e.g. 'RAT-000123', 'PEN-000045'
-  source            text           -- ration | pension | scholarship | death_registry
+  source            text           -- ration | pension | scholarship | death_registry | officer_entry
   source_ref        text           -- department's own ID
   household_ref     text null      -- ration card number, ration source only
   full_name         text
@@ -147,7 +147,9 @@ review_decisions
 
 family_events
   id                bigserial pk
-  type              text           -- death | marital_status_change
+  type              text           -- death | marital_status_change | member_add | family_move
+  document_ref      text null      -- supporting document; unique, so one document authorises one change
+  reason            text null      -- marriage | separation | birth | other
   subject_record_id text           -- anchor source record of the person
   payload           jsonb          -- e.g. {"date_of_death": "2026-09-20"} or {"marital_status": "widowed"}
   source            text           -- officer | death_registry
@@ -214,6 +216,8 @@ family_members
   relation_to_head  text
   valid_from        text null
   valid_to          text null
+  opened_by_event   bigint null    -- the officer change that started this membership
+  closed_by_event   bigint null    -- the officer change that ended it
   -- partial unique index: unique (person_id) where valid_to is null
 
 enrollments
@@ -379,6 +383,19 @@ Each result stores every condition with its actual value and pass or fail.
 **Gap analysis:**
 - **Eligible not enrolled:** eligible result with no matching enrollment (record or automatic). Because automatic schemes are granted, what remains is exactly the manual-verification and discovery-only schemes. For discovery-only schemes, every eligible result counts.
 - **Enrolled not eligible:** a record enrollment with an ineligible result. Adds that benefit to the leakage estimate.
+
+### 7.6a Family changes
+
+An officer can keep a family up to date by hand: **add a member** (a birth, or someone missing), **separate members into a new family** (an adult child or a couple and their children setting up their own household), or **move members into an existing family** (for example a daughter joining her husband's family after marriage). The person leaves the old family; a new family gets a new Family ID.
+
+A change is an **input**, never an edit of derived data, so it survives every rebuild:
+
+- Every change is a `family_events` row (`member_add` or `family_move`) with a required `reason` and a required, unique `document_ref`. A new member is a new append-only source record `USR-nnnnnn` (source `officer_entry`).
+- Families are referred to in a way that survives a rebuild: by the source record of the family head, or, for a family an officer created, by its own ID. Manual families are numbered `GJ-FID-M{event id}`, a separate namespace, so they never collide with engine-numbered IDs and existing IDs never shift.
+- The engine applies changes right after clustering, in event order, before enrollments are derived (`lib/engine/family-changes.ts`). Old memberships get a `valid_to` and `closed_by_event` (history is kept); the new one gets `valid_from` and `opened_by_event`. If the head leaves, the eldest remaining member becomes head; a family left with no members becomes `closed`.
+- Income follows the household: a new family uses the income the officer entered, and a person who moves in brings none of their old household's income. So eligibility and automatic benefits are recomputed on the new household's own income, and a pension record follows the person.
+- Validation is on the server: officer role only, a living current member, at least one member stays behind, a valid date not in the future, no marriage recorded for anyone under 18, the head of a new family must be an adult, a required document reference that has not been used before, and an explicit "I have verified the document" confirmation. Each change is written to the audit log with the before and after families.
+- There is no undo in this build; a mistake is corrected with another change and its own document reference.
 
 ### 7.6b Grievances
 
